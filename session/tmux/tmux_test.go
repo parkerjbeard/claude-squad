@@ -1,18 +1,18 @@
 package tmux
 
 import (
-	cmd2 "claude-squad/cmd"
-	"fmt"
-	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"testing"
+    cmd2 "claude-squad/cmd"
+    "fmt"
+    "math/rand"
+    "os"
+    "os/exec"
+    "path/filepath"
+    "strings"
+    "testing"
 
-	"claude-squad/cmd/cmd_test"
+    "claude-squad/cmd/cmd_test"
 
-	"github.com/stretchr/testify/require"
+    "github.com/stretchr/testify/require"
 )
 
 type MockPtyFactory struct {
@@ -85,4 +85,81 @@ func TestStartTmuxSession(t *testing.T) {
 	// File should be open
 	_, err = ptyFactory.files[1].Stat()
 	require.NoError(t, err)
+}
+
+func TestHasUpdated_ChangeDetection(t *testing.T) {
+    ptyFactory := NewMockPtyFactory(t)
+
+    content := "hello world"
+    cmdExec := cmd_test.MockCmdExec{
+        RunFunc: func(cmd *exec.Cmd) error { return nil },
+        OutputFunc: func(cmd *exec.Cmd) ([]byte, error) {
+            // Only care about capture-pane outputs in this test
+            if strings.Contains(cmd.String(), "capture-pane") {
+                return []byte(content), nil
+            }
+            return []byte(""), nil
+        },
+    }
+
+    session := newTmuxSession("test-hash", "other", ptyFactory, cmdExec)
+    session.monitor = newStatusMonitor()
+
+    // First call: no previous hash, treated as updated
+    updated, prompt := session.HasUpdated()
+    require.True(t, updated)
+    require.False(t, prompt)
+
+    // Second call: same content, not updated
+    updated, prompt = session.HasUpdated()
+    require.False(t, updated)
+    require.False(t, prompt)
+
+    // Third call with different content
+    content = "different content"
+    updated, prompt = session.HasUpdated()
+    require.True(t, updated)
+    require.False(t, prompt)
+}
+
+func TestHasUpdated_PromptDetection_Claude(t *testing.T) {
+    ptyFactory := NewMockPtyFactory(t)
+    cmdExec := cmd_test.MockCmdExec{
+        RunFunc: func(cmd *exec.Cmd) error { return nil },
+        OutputFunc: func(cmd *exec.Cmd) ([]byte, error) {
+            return []byte("No, and tell Claude what to do differently"), nil
+        },
+    }
+    session := newTmuxSession("p1", ProgramClaude, ptyFactory, cmdExec)
+    session.monitor = newStatusMonitor()
+    _, prompt := session.HasUpdated()
+    require.True(t, prompt)
+}
+
+func TestHasUpdated_PromptDetection_Aider(t *testing.T) {
+    ptyFactory := NewMockPtyFactory(t)
+    cmdExec := cmd_test.MockCmdExec{
+        RunFunc: func(cmd *exec.Cmd) error { return nil },
+        OutputFunc: func(cmd *exec.Cmd) ([]byte, error) {
+            return []byte("(Y)es/(N)o/(D)on't ask again"), nil
+        },
+    }
+    session := newTmuxSession("p2", "aider --model something", ptyFactory, cmdExec)
+    session.monitor = newStatusMonitor()
+    _, prompt := session.HasUpdated()
+    require.True(t, prompt)
+}
+
+func TestHasUpdated_PromptDetection_Gemini(t *testing.T) {
+    ptyFactory := NewMockPtyFactory(t)
+    cmdExec := cmd_test.MockCmdExec{
+        RunFunc: func(cmd *exec.Cmd) error { return nil },
+        OutputFunc: func(cmd *exec.Cmd) ([]byte, error) {
+            return []byte("Yes, allow once"), nil
+        },
+    }
+    session := newTmuxSession("p3", ProgramGemini, ptyFactory, cmdExec)
+    session.monitor = newStatusMonitor()
+    _, prompt := session.HasUpdated()
+    require.True(t, prompt)
 }

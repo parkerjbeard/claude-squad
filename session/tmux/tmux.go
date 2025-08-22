@@ -1,19 +1,19 @@
 package tmux
 
 import (
-	"bytes"
-	"claude-squad/cmd"
-	"claude-squad/log"
-	"context"
-	"crypto/sha256"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"regexp"
-	"strings"
-	"sync"
+    "bytes"
+    "claude-squad/cmd"
+    "claude-squad/log"
+    "context"
+    "errors"
+    "fmt"
+    "io"
+    "hash/fnv"
+    "os"
+    "os/exec"
+    "regexp"
+    "strings"
+    "sync"
 	"time"
 
 	"github.com/creack/pty"
@@ -196,21 +196,24 @@ func (t *TmuxSession) Restore() error {
 }
 
 type statusMonitor struct {
-	// Store hashes to save memory.
-	prevOutputHash []byte
+    // Store hashes to save memory.
+    prevOutputHash []byte
 }
 
 func newStatusMonitor() *statusMonitor {
-	return &statusMonitor{}
+    return &statusMonitor{}
 }
 
-// hash hashes the string.
-func (m *statusMonitor) hash(s string) []byte {
-	h := sha256.New()
-	// TODO: this allocation sucks since the string is probably large. Ideally, we hash the string directly.
-	h.Write([]byte(s))
-	return h.Sum(nil)
+// fnvHashString computes a fast FNV-1a 64-bit hash of the provided string without []byte allocation.
+func fnvHashString(s string) []byte {
+    h := fnv.New64a()
+    // Avoid allocating a []byte by writing the string directly
+    _, _ = io.WriteString(h, s)
+    return h.Sum(nil)
 }
+
+// hash hashes the string using FNV-1a.
+func (m *statusMonitor) hash(s string) []byte { return fnvHashString(s) }
 
 // TapEnter sends an enter keystroke to the tmux pane.
 func (t *TmuxSession) TapEnter() error {

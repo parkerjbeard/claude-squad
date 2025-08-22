@@ -21,13 +21,13 @@ const GlobalInstanceLimit = 10
 
 // Run is the main entrypoint into the application.
 func Run(ctx context.Context, program string, autoYes bool, directMode bool, directBranch string) error {
-	p := tea.NewProgram(
-		newHome(ctx, program, autoYes, directMode, directBranch),
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(), // Mouse scroll
-	)
-	_, err := p.Run()
-	return err
+    p := tea.NewProgram(
+        newHome(ctx, program, autoYes, directMode, directBranch),
+        tea.WithAltScreen(),
+        tea.WithMouseCellMotion(), // Mouse scroll
+    )
+    _, err := p.Run()
+    return err
 }
 
 type state int
@@ -175,31 +175,33 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 }
 
 func (m *home) Init() tea.Cmd {
-	// Upon starting, we want to start the spinner. Whenever we get a spinner.TickMsg, we
-	// update the spinner, which sends a new spinner.TickMsg. I think this lasts forever lol.
-	return tea.Batch(
-		m.spinner.Tick,
-		func() tea.Msg {
-			time.Sleep(100 * time.Millisecond)
-			return previewTickMsg{}
-		},
-		tickUpdateMetadataCmd,
-	)
+    // Upon starting, we want to start the spinner. Whenever we get a spinner.TickMsg, we
+    // update the spinner, which sends a new spinner.TickMsg. I think this lasts forever lol.
+    return tea.Batch(
+        m.spinner.Tick,
+        func() tea.Msg {
+            // Reduce preview polling frequency for lower CPU usage
+            time.Sleep(250 * time.Millisecond)
+            return previewTickMsg{}
+        },
+        tickUpdateMetadataCmd,
+    )
 }
 
 func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case hideErrMsg:
 		m.errBox.Clear()
-	case previewTickMsg:
-		cmd := m.instanceChanged()
-		return m, tea.Batch(
-			cmd,
-			func() tea.Msg {
-				time.Sleep(100 * time.Millisecond)
-				return previewTickMsg{}
-			},
-		)
+    case previewTickMsg:
+        cmd := m.instanceChanged()
+        return m, tea.Batch(
+            cmd,
+            func() tea.Msg {
+                // Reduce preview polling frequency for lower CPU usage
+                time.Sleep(250 * time.Millisecond)
+                return previewTickMsg{}
+            },
+        )
 	case keyupMsg:
 		m.menu.ClearKeydown()
 		return m, nil
