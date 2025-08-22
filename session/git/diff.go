@@ -1,6 +1,7 @@
 package git
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -23,11 +24,44 @@ func (d *DiffStats) IsEmpty() bool {
 
 // Diff returns the git diff between the worktree and the base branch along with statistics
 func (g *GitWorktree) Diff() *DiffStats {
+	// Lightweight counts-only diff using numstat. Does not include untracked files.
+	stats := &DiffStats{}
+	output, err := g.runGitCommand(g.worktreePath, "--no-pager", "diff", "--numstat", "--no-ext-diff", g.GetBaseCommitSHA())
+	if err != nil {
+		stats.Error = err
+		return stats
+	}
+	if strings.TrimSpace(output) == "" {
+		return stats
+	}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		// Format: added\tremoved\tpath
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		// Binary files show '-' instead of numbers
+		if parts[0] != "-" {
+			if v, e := strconv.Atoi(parts[0]); e == nil {
+				stats.Added += v
+			}
+		}
+		if parts[1] != "-" {
+			if v, e := strconv.Atoi(parts[1]); e == nil {
+				stats.Removed += v
+			}
+		}
+	}
+	return stats
+}
+
+// DiffFull returns the full diff content and statistics. This operation is more expensive
+// and will stage untracked files with intent-to-add to include them in the diff.
+func (g *GitWorktree) DiffFull() *DiffStats {
 	stats := &DiffStats{}
 
-	// -N stages untracked files (intent to add), including them in the diff
-	_, err := g.runGitCommand(g.worktreePath, "add", "-N", ".")
-	if err != nil {
+	// Stage untracked files with intent-to-add so they appear in the diff output
+	if _, err := g.runGitCommand(g.worktreePath, "add", "-N", "."); err != nil {
 		stats.Error = err
 		return stats
 	}
@@ -37,8 +71,8 @@ func (g *GitWorktree) Diff() *DiffStats {
 		stats.Error = err
 		return stats
 	}
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	// Count additions/removals from content body
+	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
 			stats.Added++
 		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
@@ -46,6 +80,5 @@ func (g *GitWorktree) Diff() *DiffStats {
 		}
 	}
 	stats.Content = content
-
 	return stats
 }

@@ -21,13 +21,13 @@ const GlobalInstanceLimit = 10
 
 // Run is the main entrypoint into the application.
 func Run(ctx context.Context, program string, autoYes bool, directMode bool, directBranch string) error {
-    p := tea.NewProgram(
-        newHome(ctx, program, autoYes, directMode, directBranch),
-        tea.WithAltScreen(),
-        tea.WithMouseCellMotion(), // Mouse scroll
-    )
-    _, err := p.Run()
-    return err
+	p := tea.NewProgram(
+		newHome(ctx, program, autoYes, directMode, directBranch),
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(), // Mouse scroll
+	)
+	_, err := p.Run()
+	return err
 }
 
 type state int
@@ -175,74 +175,74 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 }
 
 func (m *home) Init() tea.Cmd {
-    // Upon starting, we want to start the spinner. Whenever we get a spinner.TickMsg, we
-    // update the spinner, which sends a new spinner.TickMsg. I think this lasts forever lol.
-    return tea.Batch(
-        m.spinner.Tick,
-        func() tea.Msg {
-            // Reduce preview polling frequency for lower CPU usage
-            time.Sleep(250 * time.Millisecond)
-            return previewTickMsg{}
-        },
-        tickUpdateMetadataCmd,
-    )
+	// Upon starting, we want to start the spinner. Whenever we get a spinner.TickMsg, we
+	// update the spinner, which sends a new spinner.TickMsg. I think this lasts forever lol.
+	return tea.Batch(
+		m.spinner.Tick,
+		func() tea.Msg {
+			// Reduce preview polling frequency for lower CPU usage
+			time.Sleep(250 * time.Millisecond)
+			return previewTickMsg{}
+		},
+		tickUpdateMetadataCmd,
+	)
 }
 
 func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case hideErrMsg:
 		m.errBox.Clear()
-    case previewTickMsg:
-        cmd := m.instanceChanged()
-        return m, tea.Batch(
-            cmd,
-            func() tea.Msg {
-                // Reduce preview polling frequency for lower CPU usage
-                time.Sleep(250 * time.Millisecond)
-                return previewTickMsg{}
-            },
-        )
+	case previewTickMsg:
+		cmd := m.instanceChanged()
+		return m, tea.Batch(
+			cmd,
+			func() tea.Msg {
+				// Reduce preview polling frequency for lower CPU usage
+				time.Sleep(250 * time.Millisecond)
+				return previewTickMsg{}
+			},
+		)
 	case keyupMsg:
 		m.menu.ClearKeydown()
 		return m, nil
-case tickUpdateMetadataMessage:
-        // Only update metadata for relevant instances to reduce overhead.
-        selected := m.list.GetSelectedInstance()
-        inDiffTab := m.tabbedWindow.IsInDiffTab()
-        now := time.Now()
-        for _, instance := range m.list.GetInstances() {
-            if !instance.Started() || instance.Paused() {
-                continue
-            }
+	case tickUpdateMetadataMessage:
+		// Only update metadata for relevant instances to reduce overhead.
+		selected := m.list.GetSelectedInstance()
+		inDiffTab := m.tabbedWindow.IsInDiffTab()
+		now := time.Now()
+		for _, instance := range m.list.GetInstances() {
+			if !instance.Started() || instance.Paused() {
+				continue
+			}
 
-            // Determine whether to process this instance:
-            // - Always process the selected instance
-            // - Always process AutoYes instances (for prompt detection)
-            // - Process newly created instances for a short warmup window (~5s)
-            warmup := now.Sub(instance.CreatedAt) < 5*time.Second
-            shouldProcess := instance == selected || instance.AutoYes || warmup
+			// Determine whether to process this instance:
+			// - Always process the selected instance
+			// - Always process AutoYes instances (for prompt detection)
+			// - Process newly created instances for a short warmup window (~5s)
+			warmup := now.Sub(instance.CreatedAt) < 5*time.Second
+			shouldProcess := instance == selected || instance.AutoYes || warmup
 
-            if shouldProcess {
-                updated, prompt := instance.HasUpdated()
-                if updated {
-                    instance.SetStatus(session.Running)
-                } else {
-                    if prompt {
-                        instance.TapEnter()
-                    } else {
-                        instance.SetStatus(session.Ready)
-                    }
-                }
-            }
+			if shouldProcess {
+				updated, prompt := instance.HasUpdated()
+				if updated {
+					instance.SetStatus(session.Running)
+				} else {
+					if prompt {
+						instance.TapEnter()
+					} else {
+						instance.SetStatus(session.Ready)
+					}
+				}
+			}
 
-            // Only compute diff stats for the selected instance when the Diff tab is visible
-            if instance == selected && inDiffTab {
-                if err := instance.UpdateDiffStats(); err != nil {
-                    log.WarningLog.Printf("could not update diff stats: %v", err)
-                }
-            }
-        }
-        return m, tickUpdateMetadataCmd
+			// Only compute diff stats for the selected instance when the Diff tab is visible
+			if instance == selected && inDiffTab {
+				if err := instance.UpdateDiffStats(); err != nil {
+					log.WarningLog.Printf("could not update diff stats: %v", err)
+				}
+			}
+		}
+		return m, tickUpdateMetadataCmd
 	case tea.MouseMsg:
 		// Handle mouse wheel events for scrolling the diff/preview pane
 		if msg.Action == tea.MouseActionPress {

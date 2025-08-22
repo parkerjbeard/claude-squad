@@ -1,19 +1,19 @@
 package tmux
 
 import (
-    "bytes"
-    "claude-squad/cmd"
-    "claude-squad/log"
-    "context"
-    "errors"
-    "fmt"
-    "io"
-    "hash/fnv"
-    "os"
-    "os/exec"
-    "regexp"
-    "strings"
-    "sync"
+	"bytes"
+	"claude-squad/cmd"
+	"claude-squad/log"
+	"context"
+	"errors"
+	"fmt"
+	"hash/fnv"
+	"io"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/creack/pty"
@@ -55,6 +55,9 @@ type TmuxSession struct {
 	ctx    context.Context
 	cancel func()
 	wg     *sync.WaitGroup
+
+	// unified capture cache
+	cache captureCache
 }
 
 const TmuxPrefix = "claudesquad_"
@@ -196,24 +199,86 @@ func (t *TmuxSession) Restore() error {
 }
 
 type statusMonitor struct {
-    // Store hashes to save memory.
-    prevOutputHash []byte
+	// Store hashes to save memory.
+	prevOutputHash []byte
 }
 
 func newStatusMonitor() *statusMonitor {
-    return &statusMonitor{}
+	return &statusMonitor{}
 }
 
 // fnvHashString computes a fast FNV-1a 64-bit hash of the provided string without []byte allocation.
 func fnvHashString(s string) []byte {
-    h := fnv.New64a()
-    // Avoid allocating a []byte by writing the string directly
-    _, _ = io.WriteString(h, s)
-    return h.Sum(nil)
+	h := fnv.New64a()
+	// Avoid allocating a []byte by writing the string directly
+	_, _ = io.WriteString(h, s)
+	return h.Sum(nil)
 }
 
 // hash hashes the string using FNV-1a.
 func (m *statusMonitor) hash(s string) []byte { return fnvHashString(s) }
+
+// captureCache holds the last capture result for a small TTL to avoid redundant tmux calls
+type captureCache struct {
+	content   string
+	hash      []byte
+	hasPrompt bool
+	ts        time.Time
+	// capture parameters that produced this cache
+	fullHistory bool
+	maxLines    int
+}
+
+var captureCacheTTL = 200 * time.Millisecond
+
+// CaptureUnified captures the tmux pane content and computes hash and prompt presence.
+// If fullHistory is true, captures the entire scrollback. Otherwise, if maxLines > 0,
+// captures only the last maxLines of the pane to match the visible viewport.
+func (t *TmuxSession) CaptureUnified(fullHistory bool, maxLines int) (content string, hash []byte, hasPrompt bool, err error) {
+	// Return cached result if valid and parameters match
+	if time.Since(t.cache.ts) < captureCacheTTL && t.cache.fullHistory == fullHistory && t.cache.maxLines == maxLines {
+		return t.cache.content, t.cache.hash, t.cache.hasPrompt, nil
+	}
+
+	var cmd *exec.Cmd
+	if fullHistory {
+		cmd = exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-S", "-", "-E", "-", "-t", t.sanitizedName)
+	} else if maxLines > 0 {
+		// Capture only the visible region: last maxLines ending at -1 (current line)
+		cmd = exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-S", fmt.Sprintf("-%d", maxLines), "-E", "-1", "-t", t.sanitizedName)
+	} else {
+		cmd = exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-t", t.sanitizedName)
+	}
+
+	output, e := t.cmdExec.Output(cmd)
+	if e != nil {
+		return "", nil, false, fmt.Errorf("error capturing pane content: %v", e)
+	}
+	content = string(output)
+
+	// Detect prompt depending on program
+	if t.program == ProgramClaude {
+		hasPrompt = strings.Contains(content, "No, and tell Claude what to do differently")
+	} else if strings.HasPrefix(t.program, ProgramAider) {
+		hasPrompt = strings.Contains(content, "(Y)es/(N)o/(D)on't ask again")
+	} else if strings.HasPrefix(t.program, ProgramGemini) {
+		hasPrompt = strings.Contains(content, "Yes, allow once")
+	}
+
+	hash = fnvHashString(content)
+
+	// Update cache
+	t.cache = captureCache{
+		content:     content,
+		hash:        hash,
+		hasPrompt:   hasPrompt,
+		ts:          time.Now(),
+		fullHistory: fullHistory,
+		maxLines:    maxLines,
+	}
+
+	return content, hash, hasPrompt, nil
+}
 
 // TapEnter sends an enter keystroke to the tmux pane.
 func (t *TmuxSession) TapEnter() error {
@@ -241,25 +306,16 @@ func (t *TmuxSession) SendKeys(keys string) error {
 // HasUpdated checks if the tmux pane content has changed since the last tick. It also returns true if
 // the tmux pane has a prompt for aider or claude code.
 func (t *TmuxSession) HasUpdated() (updated bool, hasPrompt bool) {
-	content, err := t.CapturePaneContent()
+	content, h, hasPrompt, err := t.CaptureUnified(false, 0)
 	if err != nil {
 		log.ErrorLog.Printf("error capturing pane content in status monitor: %v", err)
 		return false, false
 	}
-
-	// Only set hasPrompt for claude and aider. Use these strings to check for a prompt.
-	if t.program == ProgramClaude {
-		hasPrompt = strings.Contains(content, "No, and tell Claude what to do differently")
-	} else if strings.HasPrefix(t.program, ProgramAider) {
-		hasPrompt = strings.Contains(content, "(Y)es/(N)o/(D)on't ask again")
-	} else if strings.HasPrefix(t.program, ProgramGemini) {
-		hasPrompt = strings.Contains(content, "Yes, allow once")
-	}
-
-	if !bytes.Equal(t.monitor.hash(content), t.monitor.prevOutputHash) {
-		t.monitor.prevOutputHash = t.monitor.hash(content)
+	if !bytes.Equal(h, t.monitor.prevOutputHash) {
+		t.monitor.prevOutputHash = h
 		return true, hasPrompt
 	}
+	_ = content // content unused except for prompt detection
 	return false, hasPrompt
 }
 
@@ -471,19 +527,14 @@ func (t *TmuxSession) DoesSessionExist() bool {
 
 // CapturePaneContent captures the content of the tmux pane
 func (t *TmuxSession) CapturePaneContent() (string, error) {
-	// Add -e flag to preserve escape sequences (ANSI color codes)
-	cmd := exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-t", t.sanitizedName)
-	output, err := t.cmdExec.Output(cmd)
-	if err != nil {
-		return "", fmt.Errorf("error capturing pane content: %v", err)
-	}
-	return string(output), nil
+	content, _, _, err := t.CaptureUnified(false, 0)
+	return content, err
 }
 
 // CapturePaneContentWithOptions captures the pane content with additional options
 // start and end specify the starting and ending line numbers (use "-" for the start/end of history)
 func (t *TmuxSession) CapturePaneContentWithOptions(start, end string) (string, error) {
-	// Add -e flag to preserve escape sequences (ANSI color codes)
+	// Fallback path for explicit options, bypassing cache since parameters vary
 	cmd := exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-S", start, "-E", end, "-t", t.sanitizedName)
 	output, err := t.cmdExec.Output(cmd)
 	if err != nil {

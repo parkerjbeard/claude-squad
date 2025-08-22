@@ -130,7 +130,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		Program:      data.Program,
 		AutoYes:      data.AutoYes,
 	}
-	
+
 	// Reconstruct GitWorktree based on mode
 	if data.DirectMode {
 		// For direct mode, create a direct GitWorktree
@@ -150,7 +150,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 			data.Worktree.BaseCommitSHA,
 		)
 	}
-	
+
 	// Restore diff stats if they exist
 	if data.DiffStats.Content != "" || data.DiffStats.Added > 0 || data.DiffStats.Removed > 0 {
 		instance.diffStats = &git.DiffStats{
@@ -355,7 +355,8 @@ func (i *Instance) Preview() (string, error) {
 	if !i.started || i.Status == Paused {
 		return "", nil
 	}
-	return i.tmuxSession.CapturePaneContent()
+	content, _, _, err := i.tmuxSession.CaptureUnified(false, i.Height)
+	return content, err
 }
 
 func (i *Instance) HasUpdated() (updated bool, hasPrompt bool) {
@@ -387,6 +388,9 @@ func (i *Instance) SetPreviewSize(width, height int) error {
 		return fmt.Errorf("cannot set preview size for instance that has not been started or " +
 			"is paused")
 	}
+	// Persist the dimensions for viewport-bounded capture
+	i.Width = width
+	i.Height = height
 	return i.tmuxSession.SetDetachedSize(width, height)
 }
 
@@ -549,7 +553,8 @@ func (i *Instance) UpdateDiffStats() error {
 		return nil
 	}
 
-	stats := i.gitWorktree.Diff()
+	// When called (gated by Diff tab visibility), compute full diff including content
+	stats := i.gitWorktree.DiffFull()
 	if stats.Error != nil {
 		if strings.Contains(stats.Error.Error(), "base commit SHA not set") {
 			// Worktree is not fully set up yet, not an error
@@ -594,7 +599,8 @@ func (i *Instance) PreviewFullHistory() (string, error) {
 	if !i.started || i.Status == Paused {
 		return "", nil
 	}
-	return i.tmuxSession.CapturePaneContentWithOptions("-", "-")
+	content, _, _, err := i.tmuxSession.CaptureUnified(true, 0)
+	return content, err
 }
 
 // SetTmuxSession sets the tmux session for testing purposes

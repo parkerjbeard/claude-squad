@@ -467,38 +467,38 @@ func TestConfirmationModalVisualAppearance(t *testing.T) {
 
 // TestTabToggleUpdatesMenu verifies that toggling tabs informs the menu about being in diff tab
 func TestTabToggleUpdatesMenu(t *testing.T) {
-    spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
-    list := ui.NewList(&spinner, false)
+	spinner := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	list := ui.NewList(&spinner, false)
 
-    // Add a minimal instance so the menu is in default state
-    instance, err := session.NewInstance(session.InstanceOptions{
-        Title:   "x",
-        Path:    t.TempDir(),
-        Program: "claude",
-    })
-    require.NoError(t, err)
-    _ = list.AddInstance(instance)
-    list.SetSelectedInstance(0)
+	// Add a minimal instance so the menu is in default state
+	instance, err := session.NewInstance(session.InstanceOptions{
+		Title:   "x",
+		Path:    t.TempDir(),
+		Program: "claude",
+	})
+	require.NoError(t, err)
+	_ = list.AddInstance(instance)
+	list.SetSelectedInstance(0)
 
-    h := &home{
-        ctx:          context.Background(),
-        state:        stateDefault,
-        appConfig:    config.DefaultConfig(),
-        list:         list,
-        menu:         ui.NewMenu(),
-        tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane()),
-    }
+	h := &home{
+		ctx:          context.Background(),
+		state:        stateDefault,
+		appConfig:    config.DefaultConfig(),
+		list:         list,
+		menu:         ui.NewMenu(),
+		tabbedWindow: ui.NewTabbedWindow(ui.NewPreviewPane(), ui.NewDiffPane()),
+	}
 
-    // Initial render should not include diff scroll hint
-    h.menu.SetInstance(instance)
-    before := h.menu.String()
-    require.NotContains(t, before, "shift+↑")
+	// Initial render should not include diff scroll hint
+	h.menu.SetInstance(instance)
+	before := h.menu.String()
+	require.NotContains(t, before, "shift+↑")
 
-    // Press tab twice to simulate key highlighting pipeline (first call highlights, second handles)
-    _, _ = h.handleKeyPress(tea.KeyMsg{Type: tea.KeyTab})
-    _, _ = h.handleKeyPress(tea.KeyMsg{Type: tea.KeyTab})
+	// Press tab twice to simulate key highlighting pipeline (first call highlights, second handles)
+	_, _ = h.handleKeyPress(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = h.handleKeyPress(tea.KeyMsg{Type: tea.KeyTab})
 
-    // After toggle, menu should include diff scroll hint
-    after := h.menu.String()
-    require.Contains(t, after, "shift+↑")
+	// After toggle, menu should include diff scroll hint
+	after := h.menu.String()
+	require.Contains(t, after, "shift+↑")
 }
