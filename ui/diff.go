@@ -109,29 +109,34 @@ func (d *DiffPane) ScrollDown() {
 }
 
 func colorizeDiff(diff string) string {
-	var coloredOutput strings.Builder
+	b := getBuilder()
+	defer putBuilder(b)
 
 	lines := strings.Split(diff, "\n")
 	for _, line := range lines {
 		if len(line) > 0 {
 			if strings.HasPrefix(line, "@@") {
 				// Color hunk headers cyan
-				coloredOutput.WriteString(HunkStyle.Render(line) + "\n")
+				b.WriteString(HunkStyle.Render(line))
+				b.WriteByte('\n')
 			} else if line[0] == '+' && (len(line) == 1 || line[1] != '+') {
 				// Color added lines green, excluding metadata like '+++'
-				coloredOutput.WriteString(AdditionStyle.Render(line) + "\n")
+				b.WriteString(AdditionStyle.Render(line))
+				b.WriteByte('\n')
 			} else if line[0] == '-' && (len(line) == 1 || line[1] != '-') {
 				// Color removed lines red, excluding metadata like '---'
-				coloredOutput.WriteString(DeletionStyle.Render(line) + "\n")
+				b.WriteString(DeletionStyle.Render(line))
+				b.WriteByte('\n')
 			} else {
 				// Print metadata and unchanged lines without color
-				coloredOutput.WriteString(line + "\n")
+				b.WriteString(line)
+				b.WriteByte('\n')
 			}
 		} else {
 			// Preserve empty lines
-			coloredOutput.WriteString("\n")
+			b.WriteByte('\n')
 		}
 	}
 
-	return coloredOutput.String()
+	return b.String()
 }

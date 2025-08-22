@@ -227,9 +227,10 @@ func (l *List) String() string {
 	const autoYesText = " auto-yes "
 
 	// Write the title.
-	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString("\n")
+	b := getBuilder()
+	defer putBuilder(b)
+	b.WriteByte('\n')
+	b.WriteByte('\n')
 
 	// Write title line
 	// add padding of 2 because the border on list items adds some extra characters
@@ -246,8 +247,8 @@ func (l *List) String() string {
 			lipgloss.Top, title, autoYes))
 	}
 
-	b.WriteString("\n")
-	b.WriteString("\n")
+	b.WriteByte('\n')
+	b.WriteByte('\n')
 
 	// Render the list.
 	for i, item := range l.items {

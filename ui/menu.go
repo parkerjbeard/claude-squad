@@ -2,7 +2,6 @@ package ui
 
 import (
 	"claude-squad/keys"
-	"strings"
 
 	"claude-squad/session"
 
@@ -154,7 +153,8 @@ func (m *Menu) SetSize(width, height int) {
 }
 
 func (m *Menu) String() string {
-	var s strings.Builder
+	s := getBuilder()
+	defer putBuilder(s)
 
 	// Define group boundaries
 	groups := []struct {
@@ -192,11 +192,11 @@ func (m *Menu) String() string {
 
 		if inActionGroup {
 			s.WriteString(localActionStyle.Render(binding.Help().Key))
-			s.WriteString(" ")
+			s.WriteByte(' ')
 			s.WriteString(localActionStyle.Render(binding.Help().Desc))
 		} else {
 			s.WriteString(localKeyStyle.Render(binding.Help().Key))
-			s.WriteString(" ")
+			s.WriteByte(' ')
 			s.WriteString(localDescStyle.Render(binding.Help().Desc))
 		}
 

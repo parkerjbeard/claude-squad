@@ -12,6 +12,13 @@ import (
 var previewPaneStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"})
 
+// Reusable styles to avoid per-render allocations
+var previewFooterStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Light: "#808080", Dark: "#808080"})
+
+var pauseHintStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Light: "#FFD700", Dark: "#FFD700"})
+
 type PreviewPane struct {
 	width  int
 	height int
@@ -59,15 +66,10 @@ func (p *PreviewPane) UpdateContent(instance *session.Instance) error {
 		p.setFallbackState(lipgloss.JoinVertical(lipgloss.Center,
 			"Session is paused. Press 'r' to resume.",
 			"",
-			lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{
-					Light: "#FFD700",
-					Dark:  "#FFD700",
-				}).
-				Render(fmt.Sprintf(
-					"The instance can be checked out at '%s' (copied to your clipboard)",
-					instance.Branch,
-				)),
+			pauseHintStyle.Render(fmt.Sprintf(
+				"The instance can be checked out at '%s' (copied to your clipboard)",
+				instance.Branch,
+			)),
 		))
 		return nil
 	}
@@ -84,9 +86,7 @@ func (p *PreviewPane) UpdateContent(instance *session.Instance) error {
 		}
 
 		// Set content in the viewport
-		footer := lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#808080", Dark: "#808080"}).
-			Render("ESC to exit scroll mode")
+		footer := previewFooterStyle.Render("ESC to exit scroll mode")
 
 		p.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, content, footer))
 	} else if !p.isScrolling {
@@ -193,9 +193,7 @@ func (p *PreviewPane) ScrollUp(instance *session.Instance) error {
 		}
 
 		// Set content in the viewport
-		footer := lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#808080", Dark: "#808080"}).
-			Render("ESC to exit scroll mode")
+		footer := previewFooterStyle.Render("ESC to exit scroll mode")
 
 		contentWithFooter := lipgloss.JoinVertical(lipgloss.Left, content, footer)
 		p.viewport.SetContent(contentWithFooter)
