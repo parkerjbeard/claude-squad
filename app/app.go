@@ -94,6 +94,11 @@ type home struct {
 	textOverlay *overlay.TextOverlay
 	// confirmationOverlay displays confirmation modals
 	confirmationOverlay *overlay.ConfirmationOverlay
+
+	// diff watcher state
+	diffWatchInst      *session.Instance
+	diffWatchActive    bool
+	diffWatchLastDirty bool
 }
 
 func newHome(ctx context.Context, program string, autoYes bool, directMode bool, directBranch string) *home {
@@ -209,7 +214,6 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickUpdateMetadataMessage:
 		// Only update metadata for relevant instances to reduce overhead.
 		selected := m.list.GetSelectedInstance()
-		inDiffTab := m.tabbedWindow.IsInDiffTab()
 		now := time.Now()
 
 		var cmds []tea.Cmd
@@ -230,11 +234,7 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				scheduled++
 			}
 
-			// Only compute diff stats for the selected instance when the Diff tab is visible
-			if instance == selected && inDiffTab && scheduled < maxScheduled {
-				cmds = append(cmds, makeGitDiffCmd(instance))
-				scheduled++
-			}
+			// Diff updates are event-driven; no periodic scheduling here
 		}
 		// Reschedule next metadata tick and batch async commands
 		return m, tea.Batch(append(cmds, tickUpdateMetadataCmd)...)
@@ -266,6 +266,19 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tabbedWindow.UpdateDiff(inst)
 		}
 		return m, nil
+	case diffWatchTickedMsg:
+		// Watcher stopped or tab hidden
+		if !m.diffWatchActive || m.diffWatchInst == nil || !m.tabbedWindow.IsInDiffTab() {
+			m.diffWatchActive = false
+			return m, nil
+		}
+		// On change, compute diff; always continue polling
+		var cmds []tea.Cmd
+		if msg.changed {
+			cmds = append(cmds, makeGitDiffCmd(m.diffWatchInst))
+		}
+		cmds = append(cmds, m.diffWatchPollCmd())
+		return m, tea.Batch(cmds...)
 	case tea.MouseMsg:
 		// Handle mouse wheel events for scrolling the diff/preview pane
 		if msg.Action == tea.MouseActionPress {
@@ -699,6 +712,21 @@ func (m *home) instanceChanged() tea.Cmd {
 	if err := m.tabbedWindow.UpdatePreview(selected); err != nil {
 		return m.handleError(err)
 	}
+	// Manage diff watcher lifecycle
+	if m.tabbedWindow.IsInDiffTab() && selected != nil {
+		// Start watcher if not active or instance changed; also prime a diff
+		prime := []tea.Cmd{makeGitDiffCmd(selected)}
+		if !m.diffWatchActive || m.diffWatchInst != selected {
+			m.diffWatchInst = selected
+			m.diffWatchActive = true
+			m.diffWatchLastDirty = false
+			prime = append(prime, m.diffWatchPollCmd())
+		}
+		return tea.Batch(prime...)
+	}
+	// Stop watcher when diff tab hidden or no selection
+	m.diffWatchActive = false
+	m.diffWatchInst = nil
 	return nil
 }
 
@@ -726,6 +754,9 @@ type previewTickMsg struct{}
 type tickUpdateMetadataMessage struct{}
 
 type instanceChangedMsg struct{}
+
+// diffWatchTickedMsg is sent when the diff watcher detects a change
+type diffWatchTickedMsg struct{ changed bool }
 
 // Async command results
 type tmuxStatusMsg struct {
@@ -793,6 +824,33 @@ func makeGitDiffCmd(inst *session.Instance) tea.Cmd {
 		case <-done:
 		}
 		return gitDiffMsg{instance: inst, stats: stats, err: err}
+	}
+}
+
+// diffWatchPollCmd polls the worktree for changes on a short interval and emits a tick message.
+// It leverages git status as a cross-platform fallback for file change events.
+func (m *home) diffWatchPollCmd() tea.Cmd {
+	return func() tea.Msg {
+		// Polling interval with basic debounce effect
+		time.Sleep(300 * time.Millisecond)
+		// Conditions may have changed
+		if !m.diffWatchActive || m.diffWatchInst == nil || !m.tabbedWindow.IsInDiffTab() {
+			return nil
+		}
+		// Query worktree dirty status
+		gw, err := m.diffWatchInst.GetGitWorktree()
+		if err != nil {
+			log.WarningLog.Printf("diff watcher get worktree error: %v", err)
+			return diffWatchTickedMsg{changed: false}
+		}
+		dirty, err := gw.IsDirty()
+		if err != nil {
+			log.WarningLog.Printf("diff watcher IsDirty error: %v", err)
+			return diffWatchTickedMsg{changed: false}
+		}
+		changed := dirty != m.diffWatchLastDirty
+		m.diffWatchLastDirty = dirty
+		return diffWatchTickedMsg{changed: changed}
 	}
 }
 

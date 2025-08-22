@@ -501,4 +501,12 @@ func TestTabToggleUpdatesMenu(t *testing.T) {
 	// After toggle, menu should include diff scroll hint
 	after := h.menu.String()
 	require.Contains(t, after, "shift+↑")
+
+	// Verify diff watcher becomes active when in Diff tab
+	require.True(t, h.diffWatchActive)
+
+	// Toggle back to Preview tab
+	_, _ = h.handleKeyPress(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = h.handleKeyPress(tea.KeyMsg{Type: tea.KeyTab})
+	require.False(t, h.diffWatchActive)
 }
