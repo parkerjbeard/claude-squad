@@ -205,26 +205,44 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case keyupMsg:
 		m.menu.ClearKeydown()
 		return m, nil
-	case tickUpdateMetadataMessage:
-		for _, instance := range m.list.GetInstances() {
-			if !instance.Started() || instance.Paused() {
-				continue
-			}
-			updated, prompt := instance.HasUpdated()
-			if updated {
-				instance.SetStatus(session.Running)
-			} else {
-				if prompt {
-					instance.TapEnter()
-				} else {
-					instance.SetStatus(session.Ready)
-				}
-			}
-			if err := instance.UpdateDiffStats(); err != nil {
-				log.WarningLog.Printf("could not update diff stats: %v", err)
-			}
-		}
-		return m, tickUpdateMetadataCmd
+case tickUpdateMetadataMessage:
+        // Only update metadata for relevant instances to reduce overhead.
+        selected := m.list.GetSelectedInstance()
+        inDiffTab := m.tabbedWindow.IsInDiffTab()
+        now := time.Now()
+        for _, instance := range m.list.GetInstances() {
+            if !instance.Started() || instance.Paused() {
+                continue
+            }
+
+            // Determine whether to process this instance:
+            // - Always process the selected instance
+            // - Always process AutoYes instances (for prompt detection)
+            // - Process newly created instances for a short warmup window (~5s)
+            warmup := now.Sub(instance.CreatedAt) < 5*time.Second
+            shouldProcess := instance == selected || instance.AutoYes || warmup
+
+            if shouldProcess {
+                updated, prompt := instance.HasUpdated()
+                if updated {
+                    instance.SetStatus(session.Running)
+                } else {
+                    if prompt {
+                        instance.TapEnter()
+                    } else {
+                        instance.SetStatus(session.Ready)
+                    }
+                }
+            }
+
+            // Only compute diff stats for the selected instance when the Diff tab is visible
+            if instance == selected && inDiffTab {
+                if err := instance.UpdateDiffStats(); err != nil {
+                    log.WarningLog.Printf("could not update diff stats: %v", err)
+                }
+            }
+        }
+        return m, tickUpdateMetadataCmd
 	case tea.MouseMsg:
 		// Handle mouse wheel events for scrolling the diff/preview pane
 		if msg.Action == tea.MouseActionPress {

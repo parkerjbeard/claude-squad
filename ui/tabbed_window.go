@@ -95,7 +95,7 @@ func (w *TabbedWindow) GetPreviewSize() (width, height int) {
 }
 
 func (w *TabbedWindow) Toggle() {
-	w.activeTab = (w.activeTab + 1) % len(w.tabs)
+    w.activeTab = (w.activeTab + 1) % len(w.tabs)
 }
 
 // ToggleWithReset toggles the tab and resets preview pane to normal mode
@@ -153,7 +153,12 @@ func (w *TabbedWindow) ScrollDown() {
 
 // IsInDiffTab returns true if the diff tab is currently active
 func (w *TabbedWindow) IsInDiffTab() bool {
-	return w.activeTab == 1
+    return w.activeTab == 1
+}
+
+// GetActiveTab returns the currently active tab index.
+func (w *TabbedWindow) GetActiveTab() int {
+    return w.activeTab
 }
 
 // IsPreviewInScrollMode returns true if the preview pane is in scroll mode
