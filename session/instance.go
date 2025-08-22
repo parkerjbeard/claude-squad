@@ -573,6 +573,11 @@ func (i *Instance) GetDiffStats() *git.DiffStats {
 	return i.diffStats
 }
 
+// SetDiffStats sets the current git diff statistics
+func (i *Instance) SetDiffStats(stats *git.DiffStats) {
+	i.diffStats = stats
+}
+
 // SendPrompt sends a prompt to the tmux session
 func (i *Instance) SendPrompt(prompt string) error {
 	if !i.started {

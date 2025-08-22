@@ -5,6 +5,7 @@ import (
 	"claude-squad/keys"
 	"claude-squad/log"
 	"claude-squad/session"
+	"claude-squad/session/git"
 	"claude-squad/ui"
 	"claude-squad/ui/overlay"
 	"context"
@@ -210,39 +211,61 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		selected := m.list.GetSelectedInstance()
 		inDiffTab := m.tabbedWindow.IsInDiffTab()
 		now := time.Now()
+
+		var cmds []tea.Cmd
+		scheduled := 0
+		const maxScheduled = 4 // simple rate limit per tick
+
 		for _, instance := range m.list.GetInstances() {
 			if !instance.Started() || instance.Paused() {
 				continue
 			}
 
 			// Determine whether to process this instance:
-			// - Always process the selected instance
-			// - Always process AutoYes instances (for prompt detection)
-			// - Process newly created instances for a short warmup window (~5s)
 			warmup := now.Sub(instance.CreatedAt) < 5*time.Second
 			shouldProcess := instance == selected || instance.AutoYes || warmup
 
-			if shouldProcess {
-				updated, prompt := instance.HasUpdated()
-				if updated {
-					instance.SetStatus(session.Running)
-				} else {
-					if prompt {
-						instance.TapEnter()
-					} else {
-						instance.SetStatus(session.Ready)
-					}
-				}
+			if shouldProcess && scheduled < maxScheduled {
+				cmds = append(cmds, makeTmuxStatusCmd(instance))
+				scheduled++
 			}
 
 			// Only compute diff stats for the selected instance when the Diff tab is visible
-			if instance == selected && inDiffTab {
-				if err := instance.UpdateDiffStats(); err != nil {
-					log.WarningLog.Printf("could not update diff stats: %v", err)
-				}
+			if instance == selected && inDiffTab && scheduled < maxScheduled {
+				cmds = append(cmds, makeGitDiffCmd(instance))
+				scheduled++
 			}
 		}
-		return m, tickUpdateMetadataCmd
+		// Reschedule next metadata tick and batch async commands
+		return m, tea.Batch(append(cmds, tickUpdateMetadataCmd)...)
+	case tmuxStatusMsg:
+		inst := msg.instance
+		if msg.err != nil {
+			log.WarningLog.Printf("tmux status error: %v", msg.err)
+			return m, nil
+		}
+		if msg.updated {
+			inst.SetStatus(session.Running)
+		} else {
+			if msg.prompt {
+				inst.TapEnter()
+			} else {
+				inst.SetStatus(session.Ready)
+			}
+		}
+		return m, nil
+	case gitDiffMsg:
+		inst := msg.instance
+		if msg.err != nil {
+			log.WarningLog.Printf("git diff error: %v", msg.err)
+			return m, nil
+		}
+		inst.SetDiffStats(msg.stats)
+		// Update the diff pane if this is the selected instance
+		if inst == m.list.GetSelectedInstance() {
+			m.tabbedWindow.UpdateDiff(inst)
+		}
+		return m, nil
 	case tea.MouseMsg:
 		// Handle mouse wheel events for scrolling the diff/preview pane
 		if msg.Action == tea.MouseActionPress {
@@ -704,11 +727,73 @@ type tickUpdateMetadataMessage struct{}
 
 type instanceChangedMsg struct{}
 
+// Async command results
+type tmuxStatusMsg struct {
+	instance *session.Instance
+	updated  bool
+	prompt   bool
+	err      error
+}
+
+type gitDiffMsg struct {
+	instance *session.Instance
+	stats    *git.DiffStats
+	err      error
+}
+
 // tickUpdateMetadataCmd is the callback to update the metadata of the instances every 500ms. Note that we iterate
 // overall the instances and capture their output. It's a pretty expensive operation. Let's do it 2x a second only.
 var tickUpdateMetadataCmd = func() tea.Msg {
 	time.Sleep(500 * time.Millisecond)
 	return tickUpdateMetadataMessage{}
+}
+
+// --- Async command helpers ---
+
+// makeTmuxStatusCmd captures status in background with a timeout
+func makeTmuxStatusCmd(inst *session.Instance) tea.Cmd {
+	return func() tea.Msg {
+		// Timeout to avoid blocking UI
+		timeout := time.After(400 * time.Millisecond)
+		done := make(chan struct{})
+		var updated bool
+		var prompt bool
+		var err error
+		go func() {
+			updated, prompt = inst.HasUpdated()
+			close(done)
+		}()
+		select {
+		case <-timeout:
+			err = fmt.Errorf("tmux status timeout")
+		case <-done:
+		}
+		return tmuxStatusMsg{instance: inst, updated: updated, prompt: prompt, err: err}
+	}
+}
+
+// makeGitDiffCmd computes diff stats in background with a timeout
+func makeGitDiffCmd(inst *session.Instance) tea.Cmd {
+	return func() tea.Msg {
+		timeout := time.After(1500 * time.Millisecond)
+		done := make(chan struct{})
+		var stats *git.DiffStats
+		var err error
+		go func() {
+			// Use full diff path
+			if err2 := inst.UpdateDiffStats(); err2 != nil {
+				err = err2
+			}
+			stats = inst.GetDiffStats()
+			close(done)
+		}()
+		select {
+		case <-timeout:
+			err = fmt.Errorf("git diff timeout")
+		case <-done:
+		}
+		return gitDiffMsg{instance: inst, stats: stats, err: err}
+	}
 }
 
 // handleError handles all errors which get bubbled up to the app. sets the error message. We return a callback tea.Cmd that returns a hideErrMsg message
