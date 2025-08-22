@@ -20,9 +20,9 @@ import (
 const GlobalInstanceLimit = 10
 
 // Run is the main entrypoint into the application.
-func Run(ctx context.Context, program string, autoYes bool) error {
+func Run(ctx context.Context, program string, autoYes bool, directMode bool, directBranch string) error {
 	p := tea.NewProgram(
-		newHome(ctx, program, autoYes),
+		newHome(ctx, program, autoYes, directMode, directBranch),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(), // Mouse scroll
 	)
@@ -49,8 +49,10 @@ type home struct {
 
 	// -- Storage and Configuration --
 
-	program string
-	autoYes bool
+	program      string
+	autoYes      bool
+	directMode   bool
+	directBranch string
 
 	// storage is the interface for saving/loading data to/from the app's state
 	storage *session.Storage
@@ -93,7 +95,7 @@ type home struct {
 	confirmationOverlay *overlay.ConfirmationOverlay
 }
 
-func newHome(ctx context.Context, program string, autoYes bool) *home {
+func newHome(ctx context.Context, program string, autoYes bool, directMode bool, directBranch string) *home {
 	// Load application config
 	appConfig := config.LoadConfig()
 
@@ -117,6 +119,8 @@ func newHome(ctx context.Context, program string, autoYes bool) *home {
 		appConfig:    appConfig,
 		program:      program,
 		autoYes:      autoYes,
+		directMode:   directMode,
+		directBranch: directBranch,
 		state:        stateDefault,
 		appState:     appState,
 	}
@@ -472,9 +476,11 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				fmt.Errorf("you can't create more than %d instances", GlobalInstanceLimit))
 		}
 		instance, err := session.NewInstance(session.InstanceOptions{
-			Title:   "",
-			Path:    ".",
-			Program: m.program,
+			Title:        "",
+			Path:         ".",
+			Program:      m.program,
+			DirectMode:   m.directMode,
+			DirectBranch: m.directBranch,
 		})
 		if err != nil {
 			return m, m.handleError(err)
@@ -493,9 +499,11 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				fmt.Errorf("you can't create more than %d instances", GlobalInstanceLimit))
 		}
 		instance, err := session.NewInstance(session.InstanceOptions{
-			Title:   "",
-			Path:    ".",
-			Program: m.program,
+			Title:        "",
+			Path:         ".",
+			Program:      m.program,
+			DirectMode:   m.directMode,
+			DirectBranch: m.directBranch,
 		})
 		if err != nil {
 			return m, m.handleError(err)
@@ -531,19 +539,23 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 		// Create the kill action as a tea.Cmd
 		killAction := func() tea.Msg {
-			// Get worktree and check if branch is checked out
-			worktree, err := selected.GetGitWorktree()
-			if err != nil {
-				return err
-			}
+			// Only check if branch is checked out for non-direct mode
+			// In direct mode, we're working on the actual branch so this check doesn't apply
+			if !selected.DirectMode {
+				// Get worktree and check if branch is checked out
+				worktree, err := selected.GetGitWorktree()
+				if err != nil {
+					return err
+				}
 
-			checkedOut, err := worktree.IsBranchCheckedOut()
-			if err != nil {
-				return err
-			}
+				checkedOut, err := worktree.IsBranchCheckedOut()
+				if err != nil {
+					return err
+				}
 
-			if checkedOut {
-				return fmt.Errorf("instance %s is currently checked out", selected.Title)
+				if checkedOut {
+					return fmt.Errorf("instance %s is currently checked out", selected.Title)
+				}
 			}
 
 			// Delete from storage first

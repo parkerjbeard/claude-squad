@@ -51,6 +51,10 @@ type Instance struct {
 	AutoYes bool
 	// Prompt is the initial prompt to pass to the instance on startup
 	Prompt string
+	// DirectMode indicates if the session works directly on an existing branch
+	DirectMode bool
+	// DirectBranch is the branch name used in direct mode
+	DirectBranch string
 
 	// DiffStats stores the current git diff statistics
 	diffStats *git.DiffStats
@@ -67,16 +71,18 @@ type Instance struct {
 // ToInstanceData converts an Instance to its serializable form
 func (i *Instance) ToInstanceData() InstanceData {
 	data := InstanceData{
-		Title:     i.Title,
-		Path:      i.Path,
-		Branch:    i.Branch,
-		Status:    i.Status,
-		Height:    i.Height,
-		Width:     i.Width,
-		CreatedAt: i.CreatedAt,
-		UpdatedAt: time.Now(),
-		Program:   i.Program,
-		AutoYes:   i.AutoYes,
+		Title:        i.Title,
+		Path:         i.Path,
+		Branch:       i.Branch,
+		Status:       i.Status,
+		Height:       i.Height,
+		Width:        i.Width,
+		CreatedAt:    i.CreatedAt,
+		UpdatedAt:    time.Now(),
+		Program:      i.Program,
+		AutoYes:      i.AutoYes,
+		DirectMode:   i.DirectMode,
+		DirectBranch: i.DirectBranch,
 	}
 
 	// Only include worktree data if gitWorktree is initialized
@@ -91,11 +97,17 @@ func (i *Instance) ToInstanceData() InstanceData {
 	}
 
 	// Only include diff stats if they exist
+	// Limit content size to prevent huge state files
 	if i.diffStats != nil {
+		content := i.diffStats.Content
+		const maxDiffSize = 10000 // 10KB max for diff content
+		if len(content) > maxDiffSize {
+			content = content[:maxDiffSize] + "\n... (truncated)"
+		}
 		data.DiffStats = DiffStatsData{
 			Added:   i.diffStats.Added,
 			Removed: i.diffStats.Removed,
-			Content: i.diffStats.Content,
+			Content: content,
 		}
 	}
 
@@ -105,27 +117,47 @@ func (i *Instance) ToInstanceData() InstanceData {
 // FromInstanceData creates a new Instance from serialized data
 func FromInstanceData(data InstanceData) (*Instance, error) {
 	instance := &Instance{
-		Title:     data.Title,
-		Path:      data.Path,
-		Branch:    data.Branch,
-		Status:    data.Status,
-		Height:    data.Height,
-		Width:     data.Width,
-		CreatedAt: data.CreatedAt,
-		UpdatedAt: data.UpdatedAt,
-		Program:   data.Program,
-		gitWorktree: git.NewGitWorktreeFromStorage(
+		Title:        data.Title,
+		Path:         data.Path,
+		Branch:       data.Branch,
+		Status:       data.Status,
+		Height:       data.Height,
+		Width:        data.Width,
+		CreatedAt:    data.CreatedAt,
+		UpdatedAt:    data.UpdatedAt,
+		DirectMode:   data.DirectMode,
+		DirectBranch: data.DirectBranch,
+		Program:      data.Program,
+		AutoYes:      data.AutoYes,
+	}
+	
+	// Reconstruct GitWorktree based on mode
+	if data.DirectMode {
+		// For direct mode, create a direct GitWorktree
+		instance.gitWorktree = git.NewDirectGitWorktreeFromStorage(
+			data.Worktree.RepoPath,
+			data.Worktree.BranchName,
+			data.Worktree.SessionName,
+			data.Worktree.BaseCommitSHA,
+		)
+	} else {
+		// For normal mode, use the standard storage constructor
+		instance.gitWorktree = git.NewGitWorktreeFromStorage(
 			data.Worktree.RepoPath,
 			data.Worktree.WorktreePath,
 			data.Worktree.SessionName,
 			data.Worktree.BranchName,
 			data.Worktree.BaseCommitSHA,
-		),
-		diffStats: &git.DiffStats{
+		)
+	}
+	
+	// Restore diff stats if they exist
+	if data.DiffStats.Content != "" || data.DiffStats.Added > 0 || data.DiffStats.Removed > 0 {
+		instance.diffStats = &git.DiffStats{
 			Added:   data.DiffStats.Added,
 			Removed: data.DiffStats.Removed,
 			Content: data.DiffStats.Content,
-		},
+		}
 	}
 
 	if instance.Paused() {
@@ -150,6 +182,10 @@ type InstanceOptions struct {
 	Program string
 	// If AutoYes is true, then
 	AutoYes bool
+	// DirectMode indicates if the session should work directly on an existing branch
+	DirectMode bool
+	// DirectBranch is the branch name to use in direct mode (e.g., "main", "master", "feature-branch")
+	DirectBranch string
 }
 
 func NewInstance(opts InstanceOptions) (*Instance, error) {
@@ -161,16 +197,23 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
+	// Validate direct mode options
+	if opts.DirectMode && opts.DirectBranch == "" {
+		return nil, fmt.Errorf("direct mode requires a branch name")
+	}
+
 	return &Instance{
-		Title:     opts.Title,
-		Status:    Ready,
-		Path:      absPath,
-		Program:   opts.Program,
-		Height:    0,
-		Width:     0,
-		CreatedAt: t,
-		UpdatedAt: t,
-		AutoYes:   false,
+		Title:        opts.Title,
+		Status:       Ready,
+		Path:         absPath,
+		Program:      opts.Program,
+		Height:       0,
+		Width:        0,
+		CreatedAt:    t,
+		UpdatedAt:    t,
+		AutoYes:      opts.AutoYes,
+		DirectMode:   opts.DirectMode,
+		DirectBranch: opts.DirectBranch,
 	}, nil
 }
 
@@ -202,9 +245,23 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 	i.tmuxSession = tmuxSession
 
 	if firstTimeSetup {
-		gitWorktree, branchName, err := git.NewGitWorktree(i.Path, i.Title)
-		if err != nil {
-			return fmt.Errorf("failed to create git worktree: %w", err)
+		var gitWorktree *git.GitWorktree
+		var branchName string
+		var err error
+
+		if i.DirectMode {
+			// Use direct mode with specified branch
+			gitWorktree, err = git.NewDirectGitWorktree(i.Path, i.DirectBranch, i.Title)
+			if err != nil {
+				return fmt.Errorf("failed to create direct git worktree: %w", err)
+			}
+			branchName = i.DirectBranch
+		} else {
+			// Use normal worktree mode
+			gitWorktree, branchName, err = git.NewGitWorktree(i.Path, i.Title)
+			if err != nil {
+				return fmt.Errorf("failed to create git worktree: %w", err)
+			}
 		}
 		i.gitWorktree = gitWorktree
 		i.Branch = branchName

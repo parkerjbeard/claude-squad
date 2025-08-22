@@ -67,6 +67,8 @@ Flags:
   -y, --autoyes          [experimental] If enabled, all instances will automatically accept prompts for claude code & aider
   -h, --help             help for claude-squad
   -p, --program string   Program to run in new instances (e.g. 'aider --model ollama_chat/gemma3:1b')
+  -d, --direct           Direct mode: edit branches directly without creating worktrees
+  -b, --branch string    Branch to edit in direct mode (e.g., 'main', 'master', 'feature-branch')
 ```
 
 Run the application with:
@@ -85,6 +87,29 @@ NOTE: The default program is `claude` and we recommend using the latest version.
    - Aider: `cs -p "aider ..."`
    - Gemini: `cs -p "gemini"`
 - Make this the default, by modifying the config file (locate with `cs debug`)
+
+<br />
+
+<b>Direct Mode:</b>
+
+Direct mode allows you to edit branches directly in your main repository without creating separate git worktrees. This is useful when you want to:
+- Edit the main branch directly
+- Work on an existing feature branch without isolation
+- Avoid the overhead of managing multiple worktrees
+
+To use direct mode:
+```bash
+# Edit the main branch directly
+cs -d -b main
+
+# Work on an existing feature branch
+cs -d -b feature-xyz
+
+# Create and edit a new branch directly
+cs -d -b new-feature
+```
+
+Note: In direct mode, sessions work directly on your repository's current state. Be careful when using this mode as changes affect your main working directory.
 
 <br />
 

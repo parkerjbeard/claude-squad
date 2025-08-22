@@ -29,6 +29,12 @@ type GitWorktree struct {
 	branchName string
 	// Base commit hash for the worktree
 	baseCommitSHA string
+	// DirectMode indicates if the session works directly on the existing branch
+	// without creating a new worktree
+	DirectMode bool
+	// OriginalBranch stores the branch that was checked out before switching
+	// to direct mode (used for cleanup)
+	OriginalBranch string
 }
 
 func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName string, branchName string, baseCommitSHA string) *GitWorktree {
@@ -38,6 +44,18 @@ func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName
 		sessionName:   sessionName,
 		branchName:    branchName,
 		baseCommitSHA: baseCommitSHA,
+	}
+}
+
+// NewDirectGitWorktreeFromStorage creates a GitWorktree for direct mode from stored data
+func NewDirectGitWorktreeFromStorage(repoPath string, branchName string, sessionName string, baseCommitSHA string) *GitWorktree {
+	return &GitWorktree{
+		repoPath:      repoPath,
+		worktreePath:  repoPath, // In direct mode, worktree path is the repo path
+		sessionName:   sessionName,
+		branchName:    branchName,
+		baseCommitSHA: baseCommitSHA,
+		DirectMode:    true,
 	}
 }
 
@@ -99,4 +117,42 @@ func (g *GitWorktree) GetRepoName() string {
 // GetBaseCommitSHA returns the base commit SHA for the worktree
 func (g *GitWorktree) GetBaseCommitSHA() string {
 	return g.baseCommitSHA
+}
+
+// NewDirectGitWorktree creates a GitWorktree that works directly on an existing branch
+// without creating a new worktree. This allows editing the main branch or any existing
+// branch directly in the repository.
+func NewDirectGitWorktree(repoPath string, branchName string, sessionName string) (*GitWorktree, error) {
+	// Convert repoPath to absolute path
+	absPath, err := filepath.Abs(repoPath)
+	if err != nil {
+		log.ErrorLog.Printf("git worktree path abs error, falling back to repoPath %s: %s", repoPath, err)
+		absPath = repoPath
+	}
+
+	repoRoot, err := findGitRepoRoot(absPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store the current branch so we can restore it later if needed
+	currentBranch, err := getCurrentBranch(repoRoot)
+	if err != nil {
+		log.ErrorLog.Printf("failed to get current branch: %v", err)
+		currentBranch = ""
+	}
+
+	return &GitWorktree{
+		repoPath:       repoRoot,
+		worktreePath:   repoRoot, // Use repo root directly as the worktree
+		sessionName:    sessionName,
+		branchName:     branchName,
+		DirectMode:     true,
+		OriginalBranch: currentBranch,
+	}, nil
+}
+
+// IsDirectMode returns true if this worktree is in direct mode
+func (g *GitWorktree) IsDirectMode() bool {
+	return g.DirectMode
 }

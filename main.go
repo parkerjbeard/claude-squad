@@ -18,11 +18,13 @@ import (
 )
 
 var (
-	version     = "1.0.12"
-	programFlag string
-	autoYesFlag bool
-	daemonFlag  bool
-	rootCmd     = &cobra.Command{
+	version      = "1.0.12"
+	programFlag  string
+	autoYesFlag  bool
+	daemonFlag   bool
+	directFlag   bool
+	directBranch string
+	rootCmd      = &cobra.Command{
 		Use:   "claude-squad",
 		Short: "Claude Squad - Manage multiple AI agents like Claude Code, Aider, Codex, and Amp.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -59,6 +61,12 @@ var (
 			if autoYesFlag {
 				autoYes = true
 			}
+
+			// Validate direct mode options
+			if directFlag && directBranch == "" {
+				return fmt.Errorf("direct mode requires a branch name. Use -b or --branch to specify one")
+			}
+
 			if autoYes {
 				defer func() {
 					if err := daemon.LaunchDaemon(); err != nil {
@@ -71,7 +79,7 @@ var (
 				log.ErrorLog.Printf("failed to stop daemon: %v", err)
 			}
 
-			return app.Run(ctx, program, autoYes)
+			return app.Run(ctx, program, autoYes, directFlag, directBranch)
 		},
 	}
 
@@ -150,6 +158,10 @@ func init() {
 		"[experimental] If enabled, all instances will automatically accept prompts")
 	rootCmd.Flags().BoolVar(&daemonFlag, "daemon", false, "Run a program that loads all sessions"+
 		" and runs autoyes mode on them.")
+	rootCmd.Flags().BoolVarP(&directFlag, "direct", "d", false,
+		"Direct mode: edit branches directly without creating worktrees")
+	rootCmd.Flags().StringVarP(&directBranch, "branch", "b", "",
+		"Branch to edit in direct mode (e.g., 'main', 'master', 'feature-branch')")
 
 	// Hide the daemonFlag as it's only for internal use
 	err := rootCmd.Flags().MarkHidden("daemon")

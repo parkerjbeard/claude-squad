@@ -14,6 +14,11 @@ import (
 
 // Setup creates a new worktree for the session
 func (g *GitWorktree) Setup() error {
+	// If in direct mode, setup directly on the branch
+	if g.DirectMode {
+		return g.SetupDirect()
+	}
+
 	// Ensure worktrees directory exists early (can be done in parallel with branch check)
 	worktreesDir, err := getWorktreeDirectory()
 	if err != nil {
@@ -117,8 +122,72 @@ func (g *GitWorktree) setupNewWorktree() error {
 	return nil
 }
 
+// SetupDirect sets up a direct mode session by checking out the specified branch
+// in the main repository without creating a worktree
+func (g *GitWorktree) SetupDirect() error {
+	// Open the repository
+	repo, err := git.PlainOpen(g.repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to open repository: %w", err)
+	}
+
+	// Check if the branch exists
+	branchRef := plumbing.NewBranchReferenceName(g.branchName)
+	_, err = repo.Reference(branchRef, false)
+	branchExists := err == nil
+
+	if !branchExists {
+		// If branch doesn't exist and it's a standard branch name like "main" or "master",
+		// we should error out
+		if g.branchName == "main" || g.branchName == "master" || g.branchName == "develop" {
+			return fmt.Errorf("branch '%s' does not exist", g.branchName)
+		}
+
+		// For other branches, create a new branch from HEAD
+		headRef, err := repo.Head()
+		if err != nil {
+			return fmt.Errorf("failed to get HEAD: %w", err)
+		}
+
+		// Create and checkout the new branch using git command
+		cmd := exec.Command("git", "checkout", "-b", g.branchName)
+		cmd.Dir = g.repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to create and checkout branch %s: %w\nOutput: %s", g.branchName, err, string(output))
+		}
+
+		// Set the base commit SHA to HEAD
+		g.baseCommitSHA = headRef.Hash().String()
+		return nil
+	}
+
+	// Checkout the existing branch
+	cmd := exec.Command("git", "checkout", g.branchName)
+	cmd.Dir = g.repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w\nOutput: %s", g.branchName, err, string(output))
+	}
+
+	// If the branch already existed, get its current commit as base
+	if branchExists && g.baseCommitSHA == "" {
+		ref, err := repo.Reference(branchRef, true)
+		if err == nil {
+			g.baseCommitSHA = ref.Hash().String()
+		}
+	}
+
+	return nil
+}
+
 // Cleanup removes the worktree and associated branch
 func (g *GitWorktree) Cleanup() error {
+	// If in direct mode, cleanup is different
+	if g.DirectMode {
+		return g.CleanupDirect()
+	}
+
 	var errs []error
 
 	// Check if worktree path exists before attempting removal
@@ -162,8 +231,32 @@ func (g *GitWorktree) Cleanup() error {
 	return nil
 }
 
+// CleanupDirect handles cleanup for direct mode sessions
+func (g *GitWorktree) CleanupDirect() error {
+	// In direct mode, we only switch back to the original branch if it was stored
+	// We don't delete branches in direct mode since they might be important (main, master, etc.)
+	if g.OriginalBranch != "" && g.OriginalBranch != g.branchName {
+		cmd := exec.Command("git", "checkout", g.OriginalBranch)
+		cmd.Dir = g.repoPath
+		if _, err := cmd.CombinedOutput(); err != nil {
+			// If we can't switch back, it's not a critical error
+			log.ErrorLog.Printf("failed to switch back to original branch %s: %v", g.OriginalBranch, err)
+		}
+	}
+
+	// In direct mode, we don't remove branches or worktrees
+	// The user is responsible for managing their branches
+	return nil
+}
+
 // Remove removes the worktree but keeps the branch
 func (g *GitWorktree) Remove() error {
+	// In direct mode, there's no worktree to remove
+	if g.DirectMode {
+		// Just return success since there's nothing to remove
+		return nil
+	}
+
 	// Remove the worktree using git command
 	if _, err := g.runGitCommand(g.repoPath, "worktree", "remove", "-f", g.worktreePath); err != nil {
 		return fmt.Errorf("failed to remove worktree: %w", err)
