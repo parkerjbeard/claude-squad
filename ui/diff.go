@@ -10,17 +10,21 @@ import (
 )
 
 var (
-	AdditionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22c55e"))
-	DeletionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ef4444"))
-	HunkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#0ea5e9"))
+    AdditionStyle = StyleOk()
+    DeletionStyle = StyleDanger()
+    HunkStyle     = lipgloss.NewStyle().Foreground(Theme.Accent)
 )
 
 type DiffPane struct {
-	viewport viewport.Model
-	diff     string
-	stats    string
-	width    int
-	height   int
+    viewport viewport.Model
+    diff     string
+    stats    string
+    width    int
+    height   int
+
+    // navigation markers
+    fileOffsets []int // line indexes within diff (not including stats header)
+    hunkOffsets []int // line indexes within diff (not including stats header)
 }
 
 func NewDiffPane() *DiffPane {
@@ -81,21 +85,22 @@ func (d *DiffPane) SetDiff(instance *session.Instance) {
 		return
 	}
 
-	if stats.IsEmpty() {
-		d.stats = ""
-		d.diff = ""
-		d.viewport.SetContent(centeredFallbackMessage)
-	} else {
-		additions := AdditionStyle.Render(fmt.Sprintf("%d additions(+)", stats.Added))
-		deletions := DeletionStyle.Render(fmt.Sprintf("%d deletions(-)", stats.Removed))
-		d.stats = lipgloss.JoinHorizontal(lipgloss.Center, additions, " ", deletions)
-		d.diff = colorizeDiff(stats.Content)
-		d.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, d.stats, d.diff))
-	}
+    if stats.IsEmpty() {
+        d.stats = ""
+        d.diff = ""
+        d.viewport.SetContent(centeredFallbackMessage)
+    } else {
+        additions := AdditionStyle.Render(fmt.Sprintf("%d additions(+)", stats.Added))
+        deletions := DeletionStyle.Render(fmt.Sprintf("%d deletions(-)", stats.Removed))
+        d.stats = lipgloss.JoinHorizontal(lipgloss.Center, additions, " ", deletions)
+        d.diff = colorizeDiff(stats.Content)
+        d.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, d.stats, d.diff))
+        d.parseMarkers()
+    }
 }
 
 func (d *DiffPane) String() string {
-	return d.viewport.View()
+    return d.viewport.View()
 }
 
 // ScrollUp scrolls the viewport up
@@ -105,9 +110,135 @@ func (d *DiffPane) ScrollUp() {
 
 // ScrollDown scrolls the viewport down
 func (d *DiffPane) ScrollDown() {
-	d.viewport.LineDown(1)
+    d.viewport.LineDown(1)
 }
 
+// PageUp scrolls up one page
+func (d *DiffPane) PageUp() { d.viewport.LineUp(max(1, d.viewport.Height-1)) }
+
+// PageDown scrolls down one page
+func (d *DiffPane) PageDown() { d.viewport.LineDown(max(1, d.viewport.Height-1)) }
+
+// HalfPageUp scrolls up half a page
+func (d *DiffPane) HalfPageUp() { d.viewport.LineUp(max(1, d.viewport.Height/2)) }
+
+// HalfPageDown scrolls down half a page
+func (d *DiffPane) HalfPageDown() { d.viewport.LineDown(max(1, d.viewport.Height/2)) }
+
+// GotoTop moves to the top of the diff content area
+func (d *DiffPane) GotoTop() { d.viewport.GotoTop() }
+
+// GotoBottom moves to the bottom of the diff content area
+func (d *DiffPane) GotoBottom() { d.viewport.GotoBottom() }
+
+// parseMarkers builds file and hunk line indices for navigation
+func (d *DiffPane) parseMarkers() {
+    d.fileOffsets = d.fileOffsets[:0]
+    d.hunkOffsets = d.hunkOffsets[:0]
+    if d.diff == "" {
+        return
+    }
+    lines := strings.Split(d.diff, "\n")
+    for i, line := range lines {
+        if strings.HasPrefix(line, "diff --git ") {
+            d.fileOffsets = append(d.fileOffsets, i)
+            continue
+        }
+        if strings.HasPrefix(line, "@@") {
+            d.hunkOffsets = append(d.hunkOffsets, i)
+        }
+    }
+}
+
+// JumpNextHunk moves the viewport to the next hunk header if present
+func (d *DiffPane) JumpNextHunk() {
+    if len(d.hunkOffsets) == 0 {
+        return
+    }
+    headerLines := 0
+    if d.stats != "" {
+        headerLines = 1
+    }
+    cur := d.viewport.YOffset - headerLines
+    if cur < 0 {
+        cur = 0
+    }
+    for _, off := range d.hunkOffsets {
+        if off > cur {
+            d.viewport.SetYOffset(off + headerLines)
+            return
+        }
+    }
+    // wrap to last
+    d.viewport.SetYOffset(d.hunkOffsets[len(d.hunkOffsets)-1] + headerLines)
+}
+
+// JumpPrevHunk moves the viewport to the previous hunk header if present
+func (d *DiffPane) JumpPrevHunk() {
+    if len(d.hunkOffsets) == 0 {
+        return
+    }
+    headerLines := 0
+    if d.stats != "" {
+        headerLines = 1
+    }
+    cur := d.viewport.YOffset - headerLines
+    if cur < 0 {
+        cur = 0
+    }
+    for i := len(d.hunkOffsets) - 1; i >= 0; i-- {
+        if d.hunkOffsets[i] < cur {
+            d.viewport.SetYOffset(d.hunkOffsets[i] + headerLines)
+            return
+        }
+    }
+    // wrap to first
+    d.viewport.SetYOffset(d.hunkOffsets[0] + headerLines)
+}
+
+// JumpNextFile moves to next file boundary
+func (d *DiffPane) JumpNextFile() {
+    if len(d.fileOffsets) == 0 {
+        return
+    }
+    headerLines := 0
+    if d.stats != "" {
+        headerLines = 1
+    }
+    cur := d.viewport.YOffset - headerLines
+    if cur < 0 {
+        cur = 0
+    }
+    for _, off := range d.fileOffsets {
+        if off > cur {
+            d.viewport.SetYOffset(off + headerLines)
+            return
+        }
+    }
+    d.viewport.SetYOffset(d.fileOffsets[len(d.fileOffsets)-1] + headerLines)
+}
+
+// JumpPrevFile moves to previous file boundary
+func (d *DiffPane) JumpPrevFile() {
+    if len(d.fileOffsets) == 0 {
+        return
+    }
+    headerLines := 0
+    if d.stats != "" {
+        headerLines = 1
+    }
+    cur := d.viewport.YOffset - headerLines
+    if cur < 0 {
+        cur = 0
+    }
+    for i := len(d.fileOffsets) - 1; i >= 0; i-- {
+        if d.fileOffsets[i] < cur {
+            d.viewport.SetYOffset(d.fileOffsets[i] + headerLines)
+            return
+        }
+    }
+    d.viewport.SetYOffset(d.fileOffsets[0] + headerLines)
+}
 func colorizeDiff(diff string) string {
 	b := getBuilder()
 	defer putBuilder(b)

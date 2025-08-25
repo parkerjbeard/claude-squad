@@ -1,8 +1,9 @@
 package overlay
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+    tea "github.com/charmbracelet/bubbletea"
+    "github.com/charmbracelet/lipgloss"
+    ui "claude-squad/ui"
 )
 
 // ConfirmationOverlay represents a confirmation dialog overlay
@@ -21,20 +22,20 @@ type ConfirmationOverlay struct {
 	ConfirmKey string
 	// Custom cancel key (defaults to 'n')
 	CancelKey string
-	// Custom styling options
-	borderColor lipgloss.Color
+    // Custom styling options
+    borderColor lipgloss.TerminalColor
 }
 
 // NewConfirmationOverlay creates a new confirmation dialog overlay with the given message
 func NewConfirmationOverlay(message string) *ConfirmationOverlay {
-	return &ConfirmationOverlay{
-		Dismissed:   false,
-		message:     message,
-		width:       50, // Default width
-		ConfirmKey:  "y",
-		CancelKey:   "n",
-		borderColor: lipgloss.Color("#de613e"), // Red color for confirmations
-	}
+    return &ConfirmationOverlay{
+        Dismissed:   false,
+        message:     message,
+        width:       60, // Default width
+        ConfirmKey:  "y",
+        CancelKey:   "n",
+        borderColor: ui.Theme.Danger,
+    }
 }
 
 // HandleKeyPress processes a key press and updates the state

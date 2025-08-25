@@ -1,9 +1,10 @@
 package overlay
 
 import (
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+    "github.com/charmbracelet/bubbles/textarea"
+    tea "github.com/charmbracelet/bubbletea"
+    "github.com/charmbracelet/lipgloss"
+    ui "claude-squad/ui"
 )
 
 // TextInputOverlay represents a text input overlay with state management.
@@ -121,24 +122,24 @@ func (t *TextInputOverlay) SetOnSubmit(onSubmit func()) {
 
 // Render renders the text input overlay.
 func (t *TextInputOverlay) Render() string {
-	// Create styles
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Padding(1, 2)
+    // Create styles
+    style := lipgloss.NewStyle().
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(ui.Theme.Accent).
+        Padding(1, 2)
 
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("62")).
-		Bold(true).
-		MarginBottom(1)
+    titleStyle := lipgloss.NewStyle().
+        Foreground(ui.Theme.Accent).
+        Bold(true).
+        MarginBottom(1)
 
-	buttonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("7"))
+    buttonStyle := lipgloss.NewStyle().
+        Foreground(ui.Theme.Fg)
 
-	focusedButtonStyle := buttonStyle
-	focusedButtonStyle = focusedButtonStyle.
-		Background(lipgloss.Color("62")).
-		Foreground(lipgloss.Color("0"))
+    focusedButtonStyle := buttonStyle
+    focusedButtonStyle = focusedButtonStyle.
+        Background(ui.Theme.Accent).
+        Foreground(ui.Theme.Fg)
 
 	// Set textarea width to fit within the overlay
 	t.textarea.SetWidth(t.width - 6) // Account for padding and borders
@@ -154,7 +155,11 @@ func (t *TextInputOverlay) Render() string {
 	} else {
 		enterButton = buttonStyle.Render(enterButton)
 	}
-	content += enterButton
+    content += enterButton
 
-	return style.Render(content)
+    // Footer hints
+    footer := ui.StyleMuted().Render("Tab to switch • Enter to submit • Esc to cancel")
+    content += "\n\n" + footer
+
+    return style.Render(content)
 }

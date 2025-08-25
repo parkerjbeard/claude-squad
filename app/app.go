@@ -96,9 +96,12 @@ type home struct {
 	confirmationOverlay *overlay.ConfirmationOverlay
 
 	// diff watcher state
-	diffWatchInst      *session.Instance
-	diffWatchActive    bool
-	diffWatchLastDirty bool
+    diffWatchInst      *session.Instance
+    diffWatchActive    bool
+    diffWatchLastDirty bool
+
+    // layout state
+    stacked bool
 }
 
 func newHome(ctx context.Context, program string, autoYes bool, directMode bool, directBranch string) *home {
@@ -154,17 +157,30 @@ func newHome(ctx context.Context, program string, autoYes bool, directMode bool,
 // updateHandleWindowSizeEvent sets the sizes of the components.
 // The components will try to render inside their bounds.
 func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
-	// List takes 30% of width, preview takes 70%
-	listWidth := int(float32(msg.Width) * 0.3)
-	tabsWidth := msg.Width - listWidth
+    // Breakpoint at 90 columns
+    m.stacked = msg.Width < 90
 
-	// Menu takes 10% of height, list and window take 90%
-	contentHeight := int(float32(msg.Height) * 0.9)
-	menuHeight := msg.Height - contentHeight - 1     // minus 1 for error box
-	m.errBox.SetSize(int(float32(msg.Width)*0.9), 1) // error box takes 1 row
+    // Reserve 1 row for error box
+    menuHeight := 1
+    contentHeight := msg.Height - menuHeight - 1 // account for err box below menu
+    m.errBox.SetSize(msg.Width, 1)
 
-	m.tabbedWindow.SetSize(tabsWidth, contentHeight)
-	m.list.SetSize(listWidth, contentHeight)
+    if m.stacked {
+        // Stacked: list on top (35% height), tabs below
+        listHeight := int(float32(contentHeight) * 0.35)
+        if listHeight < 3 {
+            listHeight = 3
+        }
+        tabsHeight := contentHeight - listHeight
+        m.list.SetSize(msg.Width, listHeight)
+        m.tabbedWindow.SetSize(msg.Width, tabsHeight)
+    } else {
+        // Wide: side-by-side (30/70)
+        listWidth := int(float32(msg.Width) * 0.3)
+        tabsWidth := msg.Width - listWidth
+        m.list.SetSize(listWidth, contentHeight)
+        m.tabbedWindow.SetSize(tabsWidth, contentHeight)
+    }
 
 	if m.textInputOverlay != nil {
 		m.textInputOverlay.SetSize(int(float32(msg.Width)*0.6), int(float32(msg.Height)*0.4))
@@ -177,7 +193,7 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 	if err := m.list.SetSessionPreviewSize(previewWidth, previewHeight); err != nil {
 		log.ErrorLog.Print(err)
 	}
-	m.menu.SetSize(msg.Width, menuHeight)
+    m.menu.SetSize(msg.Width, menuHeight)
 }
 
 func (m *home) Init() tea.Cmd {
@@ -279,24 +295,46 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.diffWatchPollCmd())
 		return m, tea.Batch(cmds...)
-	case tea.MouseMsg:
-		// Handle mouse wheel events for scrolling the diff/preview pane
-		if msg.Action == tea.MouseActionPress {
-			if msg.Button == tea.MouseButtonWheelDown || msg.Button == tea.MouseButtonWheelUp {
-				selected := m.list.GetSelectedInstance()
-				if selected == nil || selected.Status == session.Paused {
-					return m, nil
-				}
+case tea.MouseMsg:
+    // Handle mouse wheel events for scrolling the diff/preview pane
+    if msg.Action == tea.MouseActionPress {
+        if msg.Button == tea.MouseButtonWheelDown || msg.Button == tea.MouseButtonWheelUp {
+            selected := m.list.GetSelectedInstance()
+            if selected == nil || selected.Status == session.Paused {
+                return m, nil
+            }
 
-				switch msg.Button {
-				case tea.MouseButtonWheelUp:
-					m.tabbedWindow.ScrollUp()
-				case tea.MouseButtonWheelDown:
-					m.tabbedWindow.ScrollDown()
-				}
-			}
-		}
-		return m, nil
+            switch msg.Button {
+            case tea.MouseButtonWheelUp:
+                m.tabbedWindow.ScrollUp()
+            case tea.MouseButtonWheelDown:
+                m.tabbedWindow.ScrollDown()
+            }
+        } else if msg.Button == tea.MouseButtonLeft {
+            // Click handling: tabs and list
+            // Compute relative coordinates to components (account for top padding of 1 line)
+            relY := msg.Y - 1
+            // Tabs are on the right after list width
+            lw, _ := m.list.GetSize()
+            if msg.X >= lw {
+                relX := msg.X - lw
+                if idx, ok := m.tabbedWindow.HitTestTab(relX, relY); ok {
+                    if idx != m.tabbedWindow.GetActiveTab() {
+                        _ = m.tabbedWindow.ToggleWithReset(m.list.GetSelectedInstance())
+                        m.menu.SetInDiffTab(m.tabbedWindow.IsInDiffTab())
+                        return m, m.instanceChanged()
+                    }
+                }
+            } else {
+                // Inside list area
+                if row := m.list.HitTest(relY); row >= 0 {
+                    m.list.SetSelectedInstance(row)
+                    return m, m.instanceChanged()
+                }
+            }
+        }
+    }
+    return m, nil
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 	case tea.WindowSizeMsg:
@@ -358,10 +396,10 @@ func (m *home) handleMenuHighlighting(msg tea.KeyMsg) (cmd tea.Cmd, returnEarly 
 }
 
 func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
-	cmd, returnEarly := m.handleMenuHighlighting(msg)
-	if returnEarly {
-		return m, cmd
-	}
+    cmd, returnEarly := m.handleMenuHighlighting(msg)
+    if returnEarly {
+        return m, cmd
+    }
 
 	if m.state == stateHelp {
 		return m.handleHelpState(msg)
@@ -452,7 +490,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		default:
 		}
 		return m, nil
-	} else if m.state == statePrompt {
+    } else if m.state == statePrompt {
 		// Use the new TextInputOverlay component to handle all key events
 		shouldClose := m.textInputOverlay.HandleKeyPress(msg)
 
@@ -484,15 +522,15 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		}
 
 		return m, nil
-	}
+    }
 
-	// Handle confirmation state
-	if m.state == stateConfirm {
-		shouldClose := m.confirmationOverlay.HandleKeyPress(msg)
-		if shouldClose {
-			m.state = stateDefault
-			m.confirmationOverlay = nil
-			return m, nil
+    // Handle confirmation state
+    if m.state == stateConfirm {
+        shouldClose := m.confirmationOverlay.HandleKeyPress(msg)
+        if shouldClose {
+            m.state = stateDefault
+            m.confirmationOverlay = nil
+            return m, nil
 		}
 		return m, nil
 	}
@@ -583,6 +621,36 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 	case keys.KeyShiftDown:
 		m.tabbedWindow.ScrollDown()
 		return m, m.instanceChanged()
+	case keys.KeyPgUp:
+		m.tabbedWindow.PageUp()
+		return m, nil
+	case keys.KeyPgDn:
+		m.tabbedWindow.PageDown()
+		return m, nil
+	case keys.KeyHome, keys.KeyGoTop:
+		m.tabbedWindow.GotoTop()
+		return m, nil
+	case keys.KeyEnd, keys.KeyGoBottom:
+		m.tabbedWindow.GotoBottom()
+		return m, nil
+	case keys.KeyHalfUp:
+		m.tabbedWindow.HalfPageUp()
+		return m, nil
+	case keys.KeyHalfDown:
+		m.tabbedWindow.HalfPageDown()
+		return m, nil
+	case keys.KeyHunkNext:
+		m.tabbedWindow.JumpNextHunk()
+		return m, nil
+	case keys.KeyHunkPrev:
+		m.tabbedWindow.JumpPrevHunk()
+		return m, nil
+	case keys.KeyFileNext:
+		m.tabbedWindow.JumpNextFile()
+		return m, nil
+	case keys.KeyFilePrev:
+		m.tabbedWindow.JumpPrevFile()
+		return m, nil
 	case keys.KeyTab:
 		m.tabbedWindow.Toggle()
 		m.menu.SetInDiffTab(m.tabbedWindow.IsInDiffTab())
@@ -692,9 +760,29 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			m.state = stateDefault
 		})
 		return m, nil
-	default:
-		return m, nil
-	}
+    // Global fall-through handling (default state)
+    default:
+        // Esc exits preview scroll mode if active
+        if msg.String() == "esc" && m.tabbedWindow.IsPreviewInScrollMode() {
+            _ = m.tabbedWindow.ResetPreviewToNormalMode(m.list.GetSelectedInstance())
+            return m, nil
+        }
+        // Number key instance selection (1..9, 0 = 10)
+        switch msg.String() {
+        case "1", "2", "3", "4", "5", "6", "7", "8", "9", "0":
+            idx := 0
+            if msg.String() == "0" {
+                idx = 9
+            } else {
+                idx = int(msg.Runes[0]-'1')
+            }
+            if idx >= 0 && idx < m.list.NumInstances() {
+                m.list.SetSelectedInstance(idx)
+                return m, m.instanceChanged()
+            }
+        }
+        return m, nil
+    }
 }
 
 // instanceChanged updates the preview pane, menu, and diff pane based on the selected instance. It returns an error
@@ -895,16 +983,21 @@ func (m *home) confirmAction(message string, action tea.Cmd) tea.Cmd {
 }
 
 func (m *home) View() string {
-	listWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.list.String())
-	previewWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.tabbedWindow.String())
-	listAndPreview := lipgloss.JoinHorizontal(lipgloss.Top, listWithPadding, previewWithPadding)
+    listWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.list.String())
+    previewWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(m.tabbedWindow.String())
+    var content string
+    if m.stacked {
+        content = lipgloss.JoinVertical(lipgloss.Left, listWithPadding, previewWithPadding)
+    } else {
+        content = lipgloss.JoinHorizontal(lipgloss.Top, listWithPadding, previewWithPadding)
+    }
 
-	mainView := lipgloss.JoinVertical(
-		lipgloss.Center,
-		listAndPreview,
-		m.menu.String(),
-		m.errBox.String(),
-	)
+    mainView := lipgloss.JoinVertical(
+        lipgloss.Left,
+        content,
+        m.menu.String(),
+        m.errBox.String(),
+    )
 
 	if m.state == statePrompt {
 		if m.textInputOverlay == nil {

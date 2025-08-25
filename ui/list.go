@@ -1,56 +1,47 @@
 package ui
 
 import (
-	"claude-squad/log"
-	"claude-squad/session"
-	"errors"
-	"fmt"
-	"strings"
+    "claude-squad/log"
+    "claude-squad/session"
+    "errors"
+    "fmt"
+    "strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/lipgloss"
+    "github.com/charmbracelet/bubbles/spinner"
+    "github.com/charmbracelet/lipgloss"
 )
 
 const readyIcon = "● "
 const pausedIcon = "⏸ "
 
-var readyStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.AdaptiveColor{Light: "#51bd73", Dark: "#51bd73"})
-
-var addedLinesStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.AdaptiveColor{Light: "#51bd73", Dark: "#51bd73"})
-
-var removedLinesStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("#de613e"))
-
-var pausedStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#888888"})
+var readyStyle = StyleOk()
+var addedLinesStyle = StyleOk()
+var removedLinesStyle = StyleDanger()
+var pausedStyle = StyleMuted()
 
 var titleStyle = lipgloss.NewStyle().
-	Padding(1, 1, 0, 1).
-	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"})
+    Padding(1, 1, 0, 1).
+    Foreground(Theme.Fg)
 
 var listDescStyle = lipgloss.NewStyle().
-	Padding(0, 1, 1, 1).
-	Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"})
+    Padding(0, 1, 1, 1).
+    Foreground(Theme.FgMuted)
 
 var selectedTitleStyle = lipgloss.NewStyle().
-	Padding(1, 1, 0, 1).
-	Background(lipgloss.Color("#dde4f0")).
-	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#1a1a1a"})
+    Padding(1, 1, 0, 1).
+    Background(Theme.BgAlt).
+    Foreground(Theme.Fg)
 
 var selectedDescStyle = lipgloss.NewStyle().
-	Padding(0, 1, 1, 1).
-	Background(lipgloss.Color("#dde4f0")).
-	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#1a1a1a"})
+    Padding(0, 1, 1, 1).
+    Background(Theme.BgAlt).
+    Foreground(Theme.Fg)
 
-var mainTitle = lipgloss.NewStyle().
-	Background(lipgloss.Color("62")).
-	Foreground(lipgloss.Color("230"))
+var mainTitle = StyleTitle()
 
 var autoYesStyle = lipgloss.NewStyle().
-	Background(lipgloss.Color("#dde4f0")).
-	Foreground(lipgloss.Color("#1a1a1a"))
+    Background(Theme.BgAlt).
+    Foreground(Theme.Fg)
 
 type List struct {
 	items         []*session.Instance
@@ -107,23 +98,23 @@ type InstanceRenderer struct {
 }
 
 func (r *InstanceRenderer) setWidth(width int) {
-	r.width = AdjustPreviewWidth(width)
+    r.width = width
 }
 
 // ɹ and ɻ are other options.
 const branchIcon = "Ꮧ"
 
 func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, hasMultipleRepos bool) string {
-	prefix := fmt.Sprintf(" %d. ", idx)
-	if idx >= 10 {
-		prefix = prefix[:len(prefix)-1]
-	}
-	titleS := selectedTitleStyle
-	descS := selectedDescStyle
-	if !selected {
-		titleS = titleStyle
-		descS = listDescStyle
-	}
+    prefix := fmt.Sprintf(" %d. ", idx)
+    if idx >= 10 {
+        prefix = prefix[:len(prefix)-1]
+    }
+    titleS := selectedTitleStyle
+    descS := selectedDescStyle
+    if !selected {
+        titleS = titleStyle
+        descS = listDescStyle
+    }
 
 	// add spinner next to title if it's running
 	var join string
@@ -150,34 +141,51 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 		join,
 	))
 
-	stat := i.GetDiffStats()
+    stat := i.GetDiffStats()
 
-	var diff string
-	var addedDiff, removedDiff string
-	if stat == nil || stat.Error != nil || stat.IsEmpty() {
-		// Don't show diff stats if there's an error or if they don't exist
-		addedDiff = ""
-		removedDiff = ""
-		diff = ""
-	} else {
-		addedDiff = fmt.Sprintf("+%d", stat.Added)
-		removedDiff = fmt.Sprintf("-%d ", stat.Removed)
-		diff = lipgloss.JoinHorizontal(
-			lipgloss.Center,
-			addedLinesStyle.Background(descS.GetBackground()).Render(addedDiff),
-			lipgloss.Style{}.Background(descS.GetBackground()).Foreground(descS.GetForeground()).Render(","),
-			removedLinesStyle.Background(descS.GetBackground()).Render(removedDiff),
-		)
-	}
+    var diff string
+    var addedDiff, removedDiff string
+    var directBadge string
+    if stat == nil || stat.Error != nil || stat.IsEmpty() {
+        // Don't show diff stats if there's an error or if they don't exist
+        addedDiff = ""
+        removedDiff = ""
+        diff = ""
+    } else {
+        addedDiff = fmt.Sprintf("+%d", stat.Added)
+        removedDiff = fmt.Sprintf("-%d ", stat.Removed)
+        diff = lipgloss.JoinHorizontal(
+            lipgloss.Center,
+            addedLinesStyle.Background(descS.GetBackground()).Render(addedDiff),
+            lipgloss.Style{}.Background(descS.GetBackground()).Foreground(descS.GetForeground()).Render(","),
+            removedLinesStyle.Background(descS.GetBackground()).Render(removedDiff),
+        )
+    }
+
+    if i.DirectMode {
+        directBadge = StyleBadge().Background(descS.GetBackground()).Render("Direct")
+        if diff != "" {
+            diff = lipgloss.JoinHorizontal(lipgloss.Center, diff, " ", directBadge)
+        } else {
+            diff = directBadge
+        }
+    }
 
 	remainingWidth := r.width
 	remainingWidth -= len(prefix)
 	remainingWidth -= len(branchIcon)
 
-	diffWidth := len(addedDiff) + len(removedDiff)
-	if diffWidth > 0 {
-		diffWidth += 1
-	}
+    diffWidth := len(addedDiff) + len(removedDiff)
+    if diffWidth > 0 {
+        diffWidth += 1
+    }
+    if i.DirectMode {
+        // account for padded badge: 2 padding + label length
+        diffWidth += len("Direct") + 2
+        if diffWidth > 0 {
+            diffWidth += 1 // space
+        }
+    }
 
 	// Use fixed width for diff stats to avoid layout issues
 	remainingWidth -= diffWidth
@@ -213,13 +221,13 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 	branchLine := fmt.Sprintf("%s %s-%s%s%s", strings.Repeat(" ", len(prefix)), branchIcon, branch, spaces, diff)
 
 	// join title and subtitle
-	text := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		descS.Render(branchLine),
-	)
+    text := lipgloss.JoinVertical(
+        lipgloss.Left,
+        title,
+        descS.Render(branchLine),
+    )
 
-	return text
+    return text
 }
 
 func (l *List) String() string {
@@ -232,9 +240,8 @@ func (l *List) String() string {
 	b.WriteByte('\n')
 	b.WriteByte('\n')
 
-	// Write title line
-	// add padding of 2 because the border on list items adds some extra characters
-	titleWidth := AdjustPreviewWidth(l.width) + 2
+    // Write title line
+    titleWidth := l.width
 	if !l.autoyes {
 		b.WriteString(lipgloss.Place(
 			titleWidth, 1, lipgloss.Left, lipgloss.Bottom, mainTitle.Render(titleText)))
@@ -367,5 +374,45 @@ func (l *List) SetSelectedInstance(idx int) {
 
 // GetInstances returns all instances in the list
 func (l *List) GetInstances() []*session.Instance {
-	return l.items
+    return l.items
+}
+
+// HitTest returns the item index for a Y coordinate relative to the list's
+// own top-left corner. Returns -1 if outside list content.
+// Note: The list renders with a header and spacing:
+//  - 2 blank lines
+//  - 1 title line
+//  - 2 blank lines
+// Then for each item:
+//  - 2 lines (title + branch line)
+//  - 2 blank lines between items (not after last)
+func (l *List) HitTest(y int) int {
+    if y < 0 || y >= l.height {
+        return -1
+    }
+    contentStart := 5 // offset lines before first item
+    rel := y - contentStart
+    if rel < 0 {
+        return -1
+    }
+    block := 4 // 2 content + 2 spacing
+    idx := rel / block
+    if idx < 0 || idx >= len(l.items) {
+        // If click is after last block due to spacing, clamp to last item
+        if len(l.items) == 0 {
+            return -1
+        }
+        // If the click is within the content area height, clamp last
+        maxBlocks := (l.height - contentStart + block - 1) / block
+        if idx == maxBlocks {
+            return len(l.items) - 1
+        }
+        return -1
+    }
+    return idx
+}
+
+// GetSize returns the current width and height
+func (l *List) GetSize() (int, int) {
+    return l.width, l.height
 }

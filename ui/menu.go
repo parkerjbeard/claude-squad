@@ -1,35 +1,25 @@
 package ui
 
 import (
-	"claude-squad/keys"
+    "claude-squad/keys"
 
-	"claude-squad/session"
+    "claude-squad/session"
 
-	"github.com/charmbracelet/lipgloss"
+    "github.com/charmbracelet/lipgloss"
 )
 
-var keyStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-	Light: "#655F5F",
-	Dark:  "#7F7A7A",
-})
+var keyStyle = lipgloss.NewStyle().Foreground(Theme.FgMuted)
 
-var descStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-	Light: "#7A7474",
-	Dark:  "#9C9494",
-})
+var descStyle = lipgloss.NewStyle().Foreground(Theme.Fg)
 
-var sepStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-	Light: "#DDDADA",
-	Dark:  "#3C3C3C",
-})
+var sepStyle = lipgloss.NewStyle().Foreground(Theme.FgMuted)
 
-var actionGroupStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
+var actionGroupStyle = lipgloss.NewStyle().Foreground(Theme.Accent)
 
 var separator = " • "
 var verticalSeparator = " │ "
 
-var menuStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("205"))
+var menuStyle = lipgloss.NewStyle().Foreground(Theme.Fg)
 
 // MenuState represents different states the menu can be in
 type MenuState int

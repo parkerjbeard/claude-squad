@@ -1,31 +1,28 @@
 package ui
 
 import (
-	"claude-squad/session"
-	"fmt"
-	"strings"
+    "claude-squad/session"
+    "fmt"
+    "strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/charmbracelet/lipgloss"
+    "github.com/charmbracelet/bubbles/viewport"
+    "github.com/charmbracelet/lipgloss"
 )
 
-var previewPaneStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"})
+var previewPaneStyle = lipgloss.NewStyle().Foreground(Theme.Fg)
 
 // Reusable styles to avoid per-render allocations
-var previewFooterStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.AdaptiveColor{Light: "#808080", Dark: "#808080"})
+var previewFooterStyle = StyleMuted()
 
-var pauseHintStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.AdaptiveColor{Light: "#FFD700", Dark: "#FFD700"})
+var pauseHintStyle = StyleWarn()
 
 type PreviewPane struct {
-	width  int
-	height int
+    width  int
+    height int
 
-	previewState previewState
-	isScrolling  bool
-	viewport     viewport.Model
+    previewState previewState
+    isScrolling  bool
+    viewport     viewport.Model
 }
 
 type previewState struct {
@@ -36,24 +33,24 @@ type previewState struct {
 }
 
 func NewPreviewPane() *PreviewPane {
-	return &PreviewPane{
-		viewport: viewport.New(0, 0),
-	}
+    return &PreviewPane{
+        viewport: viewport.New(0, 0),
+    }
 }
 
 func (p *PreviewPane) SetSize(width, maxHeight int) {
-	p.width = width
-	p.height = maxHeight
-	p.viewport.Width = width
-	p.viewport.Height = maxHeight
+    p.width = width
+    p.height = maxHeight
+    p.viewport.Width = width
+    p.viewport.Height = maxHeight
 }
 
 // setFallbackState sets the preview state with fallback text and a message
 func (p *PreviewPane) setFallbackState(message string) {
-	p.previewState = previewState{
-		fallback: true,
-		text:     lipgloss.JoinVertical(lipgloss.Center, FallBackText, "", message),
-	}
+    p.previewState = previewState{
+        fallback: true,
+        text:     lipgloss.JoinVertical(lipgloss.Center, FallBackText, "", message),
+    }
 }
 
 // Updates the preview pane content with the tmux pane content
@@ -85,8 +82,8 @@ func (p *PreviewPane) UpdateContent(instance *session.Instance) error {
 			return err
 		}
 
-		// Set content in the viewport
-		footer := previewFooterStyle.Render("ESC to exit scroll mode")
+    // Set content in the viewport
+    footer := previewFooterStyle.Render("PgUp/PgDn Home/End • Esc to exit")
 
 		p.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, content, footer))
 	} else if !p.isScrolling {
@@ -192,8 +189,8 @@ func (p *PreviewPane) ScrollUp(instance *session.Instance) error {
 			return err
 		}
 
-		// Set content in the viewport
-		footer := previewFooterStyle.Render("ESC to exit scroll mode")
+    // Set content in the viewport
+    footer := previewFooterStyle.Render("PgUp/PgDn Home/End • Esc to exit")
 
 		contentWithFooter := lipgloss.JoinVertical(lipgloss.Left, content, footer)
 		p.viewport.SetContent(contentWithFooter)
@@ -224,9 +221,7 @@ func (p *PreviewPane) ScrollDown(instance *session.Instance) error {
 		}
 
 		// Set content in the viewport
-		footer := lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#808080", Dark: "#808080"}).
-			Render("ESC to exit scroll mode")
+        footer := previewFooterStyle.Render("ESC to exit scroll mode")
 
 		contentWithFooter := lipgloss.JoinVertical(lipgloss.Left, content, footer)
 		p.viewport.SetContent(contentWithFooter)
@@ -264,4 +259,101 @@ func (p *PreviewPane) ResetToNormalMode(instance *session.Instance) error {
 	}
 
 	return nil
+}
+
+// PageUp scrolls up by one page; enters scroll mode if needed
+func (p *PreviewPane) PageUp(instance *session.Instance) error {
+    if instance == nil || instance.Status == session.Paused {
+        return nil
+    }
+    if !p.isScrolling {
+        if err := p.enterScrollMode(instance); err != nil {
+            return err
+        }
+    }
+    p.viewport.LineUp(max(1, p.viewport.Height-1))
+    return nil
+}
+
+// PageDown scrolls down by one page; enters scroll mode if needed
+func (p *PreviewPane) PageDown(instance *session.Instance) error {
+    if instance == nil || instance.Status == session.Paused {
+        return nil
+    }
+    if !p.isScrolling {
+        if err := p.enterScrollMode(instance); err != nil {
+            return err
+        }
+    }
+    p.viewport.LineDown(max(1, p.viewport.Height-1))
+    return nil
+}
+
+// HalfPageUp scrolls up half page; enters scroll mode if needed
+func (p *PreviewPane) HalfPageUp(instance *session.Instance) error {
+    if instance == nil || instance.Status == session.Paused {
+        return nil
+    }
+    if !p.isScrolling {
+        if err := p.enterScrollMode(instance); err != nil {
+            return err
+        }
+    }
+    p.viewport.LineUp(max(1, p.viewport.Height/2))
+    return nil
+}
+
+// HalfPageDown scrolls down half page; enters scroll mode if needed
+func (p *PreviewPane) HalfPageDown(instance *session.Instance) error {
+    if instance == nil || instance.Status == session.Paused {
+        return nil
+    }
+    if !p.isScrolling {
+        if err := p.enterScrollMode(instance); err != nil {
+            return err
+        }
+    }
+    p.viewport.LineDown(max(1, p.viewport.Height/2))
+    return nil
+}
+
+// GotoTop jumps to the top; enters scroll mode if needed
+func (p *PreviewPane) GotoTop(instance *session.Instance) error {
+    if instance == nil || instance.Status == session.Paused {
+        return nil
+    }
+    if !p.isScrolling {
+        if err := p.enterScrollMode(instance); err != nil {
+            return err
+        }
+    }
+    p.viewport.GotoTop()
+    return nil
+}
+
+// GotoBottom jumps to the bottom; enters scroll mode if needed
+func (p *PreviewPane) GotoBottom(instance *session.Instance) error {
+    if instance == nil || instance.Status == session.Paused {
+        return nil
+    }
+    if !p.isScrolling {
+        if err := p.enterScrollMode(instance); err != nil {
+            return err
+        }
+    }
+    p.viewport.GotoBottom()
+    return nil
+}
+
+// enterScrollMode captures the full history and prepares the viewport footer
+func (p *PreviewPane) enterScrollMode(instance *session.Instance) error {
+    content, err := instance.PreviewFullHistory()
+    if err != nil {
+        return err
+    }
+    footer := previewFooterStyle.Render("PgUp/PgDn Home/End • Esc to exit")
+    p.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, content, footer))
+    p.viewport.GotoBottom()
+    p.isScrolling = true
+    return nil
 }
