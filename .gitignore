@@ -1,3 +1,94 @@
+# ---- Go (CLI) ----
+# Binaries and build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+*.obj
+
+# Test binaries and coverage/profiling
+*.test
+*.out
+coverage.*
+coverage.out
+*.cov
+*.coverprofile
+*.pprof
+*.prof
+*.gcda
+*.gcno
+*.gcov
+
+# Go build cache (occasionally created inside repos)
+.gocache/
+
+# Local build/output directories
+bin/
+build/
+dist/
+tmp/
+tmp-*/
+
+# Common root binaries produced locally (keep tracked ones as-is)
+/cs
+/cs.exe
+/claude-squad
+/claude-squad.exe
+/claude-squad-dev
+/*.dSYM/
+
+# ---- Web (Next.js in web/) ----
+/web/node_modules/
+/web/.next/
+/web/out/
+/web/.turbo/
+/web/.vercel/
+/web/.cache/
+/web/.eslintcache
+
+# Env files (do not commit secrets)
+.env
+.env.*
+!/web/.env.example
+!/\.env.example
+/web/.env
+/web/.env.*
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Editor & IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- OS-specific ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Icon?
+.Spotlight-V100
+.Trashes
+
+# ---- Lint/Tool caches ----
+.cache/
+.golangci-lint.cache
+.golangci-cache/
+
+# ---- Misc ----
+*.orig
+tmux*.log
 .idea
 .aider*
 claude-squad
