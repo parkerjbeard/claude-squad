@@ -94,3 +94,11 @@ tmux*.log
 claude-squad
 **.DS_Store
 cs
+
+# ---- Developer docs (internal) ----
+/developer-docs/
+.idea
+.aider*
+claude-squad
+**.DS_Store
+cs
