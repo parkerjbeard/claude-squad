@@ -82,10 +82,8 @@ func (p *PreviewPane) UpdateContent(instance *session.Instance) error {
 			return err
 		}
 
-    // Set content in the viewport
-    footer := previewFooterStyle.Render("PgUp/PgDn Home/End • Esc to exit")
-
-		p.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, content, footer))
+		// Set content only; footer rendered outside viewport for sticky behavior
+		p.viewport.SetContent(content)
 	} else if !p.isScrolling {
 		// In normal mode, use the usual preview
 		content, err = instance.Preview()
@@ -148,10 +146,14 @@ func (p *PreviewPane) String() string {
 			Render(strings.Join(lines, ""))
 	}
 
-	// If in copy mode, use the viewport to display scrollable content
-	if p.isScrolling {
-		return p.viewport.View()
-	}
+    // If in scroll mode, render viewport above sticky footer
+    if p.isScrolling {
+        if p.height > 0 {
+            p.viewport.Height = max(1, p.height-1)
+        }
+        footer := previewFooterStyle.Render("PgUp/PgDn Home/End • Esc to exit")
+        return lipgloss.JoinVertical(lipgloss.Left, p.viewport.View(), footer)
+    }
 
 	// Normal mode display
 	// Calculate available height accounting for border and margin
@@ -182,25 +184,11 @@ func (p *PreviewPane) ScrollUp(instance *session.Instance) error {
 		return nil
 	}
 
-	if !p.isScrolling {
-		// Entering scroll mode - capture entire pane content including scrollback history
-		content, err := instance.PreviewFullHistory()
-		if err != nil {
-			return err
-		}
-
-    // Set content in the viewport
-    footer := previewFooterStyle.Render("PgUp/PgDn Home/End • Esc to exit")
-
-		contentWithFooter := lipgloss.JoinVertical(lipgloss.Left, content, footer)
-		p.viewport.SetContent(contentWithFooter)
-
-		// Position the viewport at the bottom initially
-		p.viewport.GotoBottom()
-
-		p.isScrolling = true
-		return nil
-	}
+    if !p.isScrolling {
+        // Entering scroll mode - capture entire pane content including scrollback history
+        if err := p.enterScrollMode(instance); err != nil { return err }
+        return nil
+    }
 
 	// Already in scroll mode, just scroll the viewport
 	p.viewport.LineUp(1)
@@ -213,25 +201,10 @@ func (p *PreviewPane) ScrollDown(instance *session.Instance) error {
 		return nil
 	}
 
-	if !p.isScrolling {
-		// Entering scroll mode - capture entire pane content including scrollback history
-		content, err := instance.PreviewFullHistory()
-		if err != nil {
-			return err
-		}
-
-		// Set content in the viewport
-        footer := previewFooterStyle.Render("ESC to exit scroll mode")
-
-		contentWithFooter := lipgloss.JoinVertical(lipgloss.Left, content, footer)
-		p.viewport.SetContent(contentWithFooter)
-
-		// Position the viewport at the bottom initially
-		p.viewport.GotoBottom()
-
-		p.isScrolling = true
-		return nil
-	}
+    if !p.isScrolling {
+        if err := p.enterScrollMode(instance); err != nil { return err }
+        return nil
+    }
 
 	// Already in copy mode, just scroll the viewport
 	p.viewport.LineDown(1)
@@ -244,11 +217,12 @@ func (p *PreviewPane) ResetToNormalMode(instance *session.Instance) error {
 		return nil
 	}
 
-	if p.isScrolling {
-		p.isScrolling = false
-		// Reset viewport
-		p.viewport.SetContent("")
-		p.viewport.GotoTop()
+    if p.isScrolling {
+        p.isScrolling = false
+        // Reset viewport
+        p.viewport.SetContent("")
+        p.viewport.GotoTop()
+        p.viewport.Height = p.height
 
 		// Immediately update content instead of waiting for next UpdateContent call
 		content, err := instance.Preview()
@@ -351,8 +325,7 @@ func (p *PreviewPane) enterScrollMode(instance *session.Instance) error {
     if err != nil {
         return err
     }
-    footer := previewFooterStyle.Render("PgUp/PgDn Home/End • Esc to exit")
-    p.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, content, footer))
+    p.viewport.SetContent(content)
     p.viewport.GotoBottom()
     p.isScrolling = true
     return nil
