@@ -39,6 +39,8 @@ func NewPreviewPane() *PreviewPane {
 }
 
 func (p *PreviewPane) SetSize(width, maxHeight int) {
+    if width < 1 { width = 1 }
+    if maxHeight < 1 { maxHeight = 1 }
     p.width = width
     p.height = maxHeight
     p.viewport.Width = width
@@ -109,9 +111,9 @@ func (p *PreviewPane) UpdateContent(instance *session.Instance) error {
 
 // Returns the preview pane content as a string.
 func (p *PreviewPane) String() string {
-	if p.width == 0 || p.height == 0 {
-		return strings.Repeat("\n", p.height)
-	}
+    if p.width <= 0 || p.height <= 0 {
+        return ""
+    }
 
 	if p.previewState.fallback {
 		// Calculate available height for fallback text

@@ -34,14 +34,16 @@ func NewDiffPane() *DiffPane {
 }
 
 func (d *DiffPane) SetSize(width, height int) {
-	d.width = width
-	d.height = height
-	d.viewport.Width = width
-	d.viewport.Height = height
-	// Update viewport content if diff exists
-	if d.diff != "" || d.stats != "" {
-		d.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, d.stats, d.diff))
-	}
+    if width < 1 { width = 1 }
+    if height < 1 { height = 1 }
+    d.width = width
+    d.height = height
+    d.viewport.Width = width
+    d.viewport.Height = height
+    // Update viewport content if diff exists
+    if d.diff != "" || d.stats != "" {
+        d.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, d.stats, d.diff))
+    }
 }
 
 func (d *DiffPane) SetDiff(instance *session.Instance) {

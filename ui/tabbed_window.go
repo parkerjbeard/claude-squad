@@ -71,6 +71,8 @@ func (w *TabbedWindow) SetInstance(instance *session.Instance) {
 }
 
 func (w *TabbedWindow) SetSize(width, height int) {
+    if width < 1 { width = 1 }
+    if height < 1 { height = 1 }
     w.width = width
     w.height = height
 
@@ -79,8 +81,10 @@ func (w *TabbedWindow) SetSize(width, height int) {
     // 2. Window style vertical frame size
 	// 3. Additional padding/spacing (2 for the newline and spacing)
 	tabHeight := activeTabStyle.GetVerticalFrameSize() + 1
-	contentHeight := height - tabHeight - windowStyle.GetVerticalFrameSize() - 2
-	contentWidth := w.width - windowStyle.GetHorizontalFrameSize()
+    contentHeight := height - tabHeight - windowStyle.GetVerticalFrameSize() - 2
+    if contentHeight < 1 { contentHeight = 1 }
+    contentWidth := w.width - windowStyle.GetHorizontalFrameSize()
+    if contentWidth < 1 { contentWidth = 1 }
 
 	w.preview.SetSize(contentWidth, contentHeight)
     w.diff.SetSize(contentWidth, contentHeight)
@@ -280,8 +284,10 @@ func (w *TabbedWindow) String() string {
 		} else if isLast {
 			border.BottomRight = "┤"
 		}
-		style = style.Border(border)
-		style = style.Width(width - 1)
+        style = style.Border(border)
+        wcell := width - 1
+        if wcell < 1 { wcell = 1 }
+        style = style.Width(wcell)
 		renderedTabs = append(renderedTabs, style.Render(t))
 	}
 
@@ -292,10 +298,12 @@ func (w *TabbedWindow) String() string {
 	} else {
 		content = w.diff.String()
 	}
-	window := windowStyle.Render(
-		lipgloss.Place(
-			w.width, w.height-2-windowStyle.GetVerticalFrameSize()-tabHeight,
-			lipgloss.Left, lipgloss.Top, content))
+    hAvail := w.height - 2 - windowStyle.GetVerticalFrameSize() - tabHeight
+    if hAvail < 1 { hAvail = 1 }
+    window := windowStyle.Render(
+        lipgloss.Place(
+            w.width, hAvail,
+            lipgloss.Left, lipgloss.Top, content))
 
     return lipgloss.JoinVertical(lipgloss.Left, "\n", row, window)
 }

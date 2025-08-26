@@ -162,22 +162,35 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 
     // Reserve 1 row for error box
     menuHeight := 1
+    // Ensure non-negative content height
     contentHeight := msg.Height - menuHeight - 1 // account for err box below menu
-    m.errBox.SetSize(msg.Width, 1)
+    if contentHeight < 1 {
+        contentHeight = 1
+    }
+    // Always set error box to at least 1x1 to avoid panics
+    ew, eh := msg.Width, 1
+    if ew < 1 { ew = 1 }
+    if eh < 1 { eh = 1 }
+    m.errBox.SetSize(ew, eh)
 
     if m.stacked {
         // Stacked: list on top (35% height), tabs below
         listHeight := int(float32(contentHeight) * 0.35)
-        if listHeight < 3 {
-            listHeight = 3
-        }
+        if listHeight < 3 { listHeight = 3 }
+        if listHeight >= contentHeight { listHeight = contentHeight - 1 }
+        if listHeight < 1 { listHeight = 1 }
         tabsHeight := contentHeight - listHeight
-        m.list.SetSize(msg.Width, listHeight)
-        m.tabbedWindow.SetSize(msg.Width, tabsHeight)
+        if tabsHeight < 1 { tabsHeight = 1 }
+        lw := msg.Width
+        if lw < 1 { lw = 1 }
+        m.list.SetSize(lw, listHeight)
+        m.tabbedWindow.SetSize(lw, tabsHeight)
     } else {
         // Wide: side-by-side (30/70)
         listWidth := int(float32(msg.Width) * 0.3)
+        if listWidth < 1 { listWidth = 1 }
         tabsWidth := msg.Width - listWidth
+        if tabsWidth < 1 { tabsWidth = 1 }
         m.list.SetSize(listWidth, contentHeight)
         m.tabbedWindow.SetSize(tabsWidth, contentHeight)
     }
@@ -193,7 +206,11 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 	if err := m.list.SetSessionPreviewSize(previewWidth, previewHeight); err != nil {
 		log.ErrorLog.Print(err)
 	}
-    m.menu.SetSize(msg.Width, menuHeight)
+    mw := msg.Width
+    if mw < 1 { mw = 1 }
+    mh := menuHeight
+    if mh < 1 { mh = 1 }
+    m.menu.SetSize(mw, mh)
 }
 
 func (m *home) Init() tea.Cmd {
@@ -651,10 +668,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 	case keys.KeyFilePrev:
 		m.tabbedWindow.JumpPrevFile()
 		return m, nil
-	case keys.KeyTab:
-		m.tabbedWindow.Toggle()
-		m.menu.SetInDiffTab(m.tabbedWindow.IsInDiffTab())
-		return m, m.instanceChanged()
+    case keys.KeyTab:
+        _ = m.tabbedWindow.ToggleWithReset(m.list.GetSelectedInstance())
+        m.menu.SetInDiffTab(m.tabbedWindow.IsInDiffTab())
+        return m, m.instanceChanged()
 	case keys.KeyKill:
 		selected := m.list.GetSelectedInstance()
 		if selected == nil {

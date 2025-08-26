@@ -66,9 +66,11 @@ func NewList(spinner *spinner.Model, autoYes bool) *List {
 
 // SetSize sets the height and width of the list.
 func (l *List) SetSize(width, height int) {
-	l.width = width
-	l.height = height
-	l.renderer.setWidth(width)
+    if width < 1 { width = 1 }
+    if height < 1 { height = 1 }
+    l.width = width
+    l.height = height
+    l.renderer.setWidth(width)
 }
 
 // SetSessionPreviewSize sets the height and width for the tmux sessions. This makes the stdout line have the correct

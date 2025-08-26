@@ -1,20 +1,21 @@
 package tmux
 
 import (
-	"bytes"
-	"claude-squad/cmd"
-	"claude-squad/log"
-	"context"
-	"errors"
-	"fmt"
-	"hash/fnv"
-	"io"
-	"os"
-	"os/exec"
-	"regexp"
-	"strings"
-	"sync"
-	"time"
+    "bytes"
+    "claude-squad/cmd"
+    "claude-squad/log"
+    "context"
+    "errors"
+    "fmt"
+    "hash/fnv"
+    "io"
+    "os"
+    "os/exec"
+    "strconv"
+    "regexp"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/creack/pty"
 )
@@ -56,8 +57,8 @@ type TmuxSession struct {
 	cancel func()
 	wg     *sync.WaitGroup
 
-	// unified capture cache
-	cache captureCache
+    // unified capture cache
+    cache captureCache
 }
 
 const TmuxPrefix = "claudesquad_"
@@ -347,24 +348,24 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 		}
 	}()
 
-	go func() {
-		// Close the channel after 50ms
-		timeoutCh := make(chan struct{})
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			close(timeoutCh)
-		}()
+    go func() {
+        // Close the channel after 50ms
+        timeoutCh := make(chan struct{})
+        go func() {
+            time.Sleep(50 * time.Millisecond)
+            close(timeoutCh)
+        }()
 
-		// Read input from stdin and check for Ctrl+q
-		buf := make([]byte, 32)
-		for {
-			nr, err := os.Stdin.Read(buf)
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				continue
-			}
+        // Read input from stdin and check for Ctrl+q
+        buf := make([]byte, 32)
+        for {
+            nr, err := os.Stdin.Read(buf)
+            if err != nil {
+                if err == io.EOF {
+                    break
+                }
+                continue
+            }
 
 			// Nuke the first bytes of stdin, up to 64, to prevent tmux from reading it.
 			// When we attach, there tends to be terminal control sequences like ?[?62c0;95;0c or
@@ -380,20 +381,127 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 				continue
 			}
 
-			// Check for Ctrl+q (ASCII 17)
-			if nr == 1 && buf[0] == 17 {
-				// Detach from the session
-				t.Detach()
-				return
-			}
+            // Check for Ctrl+q (ASCII 17)
+            if nr == 1 && buf[0] == 17 {
+                // Detach from the session
+                t.Detach()
+                return
+            }
 
-			// Forward other input to tmux
-			_, _ = t.ptmx.Write(buf[:nr])
-		}
-	}()
+            // Intercept navigation keys to control tmux copy-mode scrolling
+            if handled := t.handleCopyModeKeys(buf[:nr]); handled {
+                // Do not forward these keys to the session
+                continue
+            }
+
+            // Forward other input to tmux
+            _, _ = t.ptmx.Write(buf[:nr])
+        }
+    }()
 
 	t.monitorWindowSize()
-	return t.attachCh, nil
+    return t.attachCh, nil
+}
+
+// handleCopyModeKeys detects common navigation key sequences and controls tmux copy-mode scrolling.
+// Returns true if the input was handled and should not be forwarded to tmux.
+func (t *TmuxSession) handleCopyModeKeys(b []byte) bool {
+    // Common escape sequences
+    seq := func(bytes ...byte) bool { return len(b) >= len(bytes) && bytesEqualSuffix(b, bytes) }
+
+    // Page Up / Page Down
+    if seq(27, 91, 53, 126) { // ESC [ 5 ~
+        _ = t.copyModeCommand("page-up")
+        return true
+    }
+    if seq(27, 91, 54, 126) { // ESC [ 6 ~
+        _ = t.copyModeCommand("page-down")
+        return true
+    }
+
+    // Home variants
+    if seq(27, 91, 72) || seq(27, 91, 49, 126) || seq(27, 79, 72) { // ESC [ H | ESC [ 1 ~ | ESC O H
+        _ = t.copyModeCommand("history-top")
+        return true
+    }
+    // End variants
+    if seq(27, 91, 70) || seq(27, 91, 52, 126) || seq(27, 79, 70) { // ESC [ F | ESC [ 4 ~ | ESC O F
+        _ = t.copyModeCommand("history-bottom")
+        return true
+    }
+
+    // Shift+Up / Shift+Down (xterm): ESC [ 1 ; 2 A / ESC [ 1 ; 2 B
+    if seq(27, 91, 49, 59, 50, 65) { // S-Up
+        _ = t.copyModeCommand("scroll-up")
+        return true
+    }
+    if seq(27, 91, 49, 59, 50, 66) { // S-Down
+        _ = t.copyModeCommand("scroll-down")
+        return true
+    }
+
+    // Ctrl-U / Ctrl-D for half-page scroll (C-u = 0x15, C-d = 0x04)
+    if len(b) == 1 && b[0] == 0x15 { // C-u
+        _ = t.copyModeCommand("halfpage-up")
+        return true
+    }
+    if len(b) == 1 && b[0] == 0x04 { // C-d
+        _ = t.copyModeCommand("halfpage-down")
+        return true
+    }
+
+    return false
+}
+
+// bytesEqualSuffix returns true if x ends with the sequence y
+func bytesEqualSuffix(x []byte, y []byte) bool {
+    if len(x) < len(y) {
+        return false
+    }
+    start := len(x) - len(y)
+    for i := range y {
+        if x[start+i] != y[i] {
+            return false
+        }
+    }
+    return true
+}
+
+// inCopyMode queries tmux to determine if the active pane is in copy-mode
+func (t *TmuxSession) inCopyMode() bool {
+    cmd := exec.Command("tmux", "display-message", "-p", "-t", t.sanitizedName, "#{pane_in_mode}")
+    out, err := t.cmdExec.Output(cmd)
+    if err != nil {
+        return false
+    }
+    s := strings.TrimSpace(string(out))
+    // tmux prints 1 or 0
+    v, err := strconv.Atoi(s)
+    if err != nil {
+        return false
+    }
+    return v != 0
+}
+
+// ensureCopyMode enters copy-mode if not already active
+func (t *TmuxSession) ensureCopyMode() error {
+    if t.inCopyMode() {
+        return nil
+    }
+    cmd := exec.Command("tmux", "copy-mode", "-u", "-t", t.sanitizedName)
+    if err := t.cmdExec.Run(cmd); err != nil {
+        return err
+    }
+    return nil
+}
+
+// copyModeCommand ensures copy-mode is active and sends a -X command
+func (t *TmuxSession) copyModeCommand(action string) error {
+    if err := t.ensureCopyMode(); err != nil {
+        return err
+    }
+    cmd := exec.Command("tmux", "send-keys", "-t", t.sanitizedName, "-X", action)
+    return t.cmdExec.Run(cmd)
 }
 
 // DetachSafely disconnects from the current tmux session without panicking
